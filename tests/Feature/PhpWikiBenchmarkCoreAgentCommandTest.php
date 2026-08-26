@@ -64,6 +64,34 @@ class PhpWikiBenchmarkCoreAgentCommandTest extends TestCase
         $this->assertDatabaseCount('wiki_sources', 0);
         $this->assertDatabaseCount('agent_runs', 0);
     }
+
+    public function test_live_command_can_select_a_fixed_corpus_subset_by_id(): void
+    {
+        $this->app->instance(AgentRunner::class, new BenchmarkAgentRunner);
+
+        $this->artisan('php-wiki:benchmark-core-agent', [
+            '--live' => true,
+            '--ids' => 'lookup-01',
+            '--workspace' => 'fixture',
+            '--output' => $this->reportPath,
+        ])->assertSuccessful();
+
+        $report = json_decode(File::get($this->reportPath), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame('subset', $report['scope']);
+        $this->assertSame(1, $report['corpus_size']);
+        $this->assertSame('lookup-01', $report['cases'][0]['id']);
+    }
+
+    public function test_live_command_rejects_unknown_corpus_ids(): void
+    {
+        $this->artisan('php-wiki:benchmark-core-agent', [
+            '--live' => true,
+            '--ids' => 'missing-01',
+            '--output' => $this->reportPath,
+        ])->assertExitCode(2);
+
+        $this->assertFileDoesNotExist($this->reportPath);
+    }
 }
 
 class BenchmarkAgentRunner implements AgentRunner

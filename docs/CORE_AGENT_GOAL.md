@@ -197,6 +197,7 @@ plan_completed
 retrieval_started
 evidence_added
 coverage_updated
+answer_contract_selected
 verification_started
 verification_failed
 answer_completed

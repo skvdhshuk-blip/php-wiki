@@ -26,9 +26,11 @@ class CoreAgentBenchmarkObserver
         $answerEvent = $events->filter(static fn ($event): bool => $event->type === 'answer_completed')->last();
         $coverageEvent = $events->filter(static fn ($event): bool => $event->type === 'coverage_updated')->last();
         $planEvent = $events->filter(static fn ($event): bool => $event->type === 'plan_completed')->last();
+        $contractEvent = $events->filter(static fn ($event): bool => $event->type === 'answer_contract_selected')->last();
         $answer = $answerEvent?->payloadData() ?? [];
         $coverage = $coverageEvent?->payloadData() ?? [];
         $plan = $planEvent?->payloadData() ?? [];
+        $contract = $contractEvent?->payloadData() ?? [];
         $evidence = array_values($events->where('type', 'evidence_added')
             ->map(static fn ($event): array => $event->payloadData())
             ->values()
@@ -60,16 +62,39 @@ class CoreAgentBenchmarkObserver
         );
         $toolBudget = is_array($coverage['tool_budget'] ?? null) ? $coverage['tool_budget'] : [];
         $response = (string) ($message === null ? ($run->response_text ?? '') : $message->content);
+        $verificationFailures = $events->where('type', 'verification_failed')
+            ->flatMap(static function ($event): array {
+                $errors = $event->payloadData()['errors'] ?? [];
+
+                return is_array($errors) ? array_values(array_filter($errors, 'is_string')) : [];
+            })
+            ->map(fn (string $error): string => $this->redactDiagnostic($error))
+            ->values()
+            ->all();
 
         return [
             'id' => $entry['id'],
             'run_id' => $run->id,
+            'status' => $run->status,
+            'termination_reason' => $run->termination_reason,
+            'failure_reason' => $run->error_message === null
+                ? null
+                : $this->redactDiagnostic((string) $run->error_message),
+            'failed_response_shape' => $run->status === AgentRunStatus::Failed->value
+                ? $this->responseShape((string) ($run->response_text ?? ''))
+                : null,
+            'verification_failures' => $verificationFailures,
+            'semantic_event_types' => $types,
             'completed' => $run->status === AgentRunStatus::Completed->value,
             'mode' => is_string($scope['mode'] ?? null) ? $scope['mode'] : null,
             'answer_type' => $answerType,
+            'required_answer_type' => is_string($contract['required_type'] ?? null)
+                ? $contract['required_type']
+                : null,
             'evidence_count' => count($evidence),
             'cited_evidence_count' => count($messageCitations),
             'cited_evidence_kinds' => $this->citedEvidenceKinds($messageCitations),
+            'cited_sources' => $this->citedSources($messageCitations),
             'normal_nonempty' => $run->termination_reason === 'normal' && trim($response) !== '',
             'citations_resolvable' => $citationsResolvable,
             'evidence_traceable' => $this->evidenceTraceable($evidence, $successfulToolCalls),
@@ -97,6 +122,32 @@ class CoreAgentBenchmarkObserver
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
             )),
         ];
+    }
+
+    /**
+     * @param  list<mixed>  $citations
+     * @return list<array<string, mixed>>
+     */
+    private function citedSources(array $citations): array
+    {
+        $sources = [];
+        foreach ($citations as $citation) {
+            if (! is_array($citation) || ! is_string($citation['evidence_id'] ?? null)) {
+                continue;
+            }
+            $sources[] = [
+                'evidence_id' => $citation['evidence_id'],
+                'wiki_path' => is_string($citation['wiki_path'] ?? null) ? $citation['wiki_path'] : null,
+                'wiki_revision_or_hash' => is_string($citation['wiki_revision_or_hash'] ?? null)
+                    ? $citation['wiki_revision_or_hash']
+                    : null,
+                'raw_path' => is_string($citation['raw_path'] ?? null) ? $citation['raw_path'] : null,
+                'raw_sha256' => is_string($citation['raw_sha256'] ?? null) ? $citation['raw_sha256'] : null,
+                'locator' => is_string($citation['locator'] ?? null) ? $citation['locator'] : null,
+            ];
+        }
+
+        return $sources;
     }
 
     /**
@@ -328,5 +379,58 @@ class CoreAgentBenchmarkObserver
     private function containsSecret(string $text): bool
     {
         return preg_match('/sk-[A-Za-z0-9]{20,}|authorization\s*[:=]\s*bearer\s+[^<\s]+/iu', $text) === 1;
+    }
+
+    private function redactDiagnostic(string $text): string
+    {
+        return (string) preg_replace(
+            ['/sk-[A-Za-z0-9_-]{8,}/u', '/authorization\s*[:=]\s*bearer\s+[^<\s]+/iu'],
+            '[REDACTED]',
+            mb_substr($text, 0, 2000),
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function responseShape(string $response): ?array
+    {
+        try {
+            $data = json_decode(trim($response), true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $response === '' ? null : ['json' => false, 'bytes' => strlen($response)];
+        }
+        if (! is_array($data)) {
+            return ['json' => true, 'root_type' => get_debug_type($data)];
+        }
+
+        $sections = is_array($data['sections'] ?? null) ? array_values($data['sections']) : [];
+
+        return [
+            'json' => true,
+            'keys' => array_values(array_filter(array_keys($data), 'is_string')),
+            'type' => is_string($data['type'] ?? null) ? $data['type'] : get_debug_type($data['type'] ?? null),
+            'sections_count' => count($sections),
+            'sections' => array_map(static function (mixed $section): array {
+                if (! is_array($section)) {
+                    return ['type' => get_debug_type($section)];
+                }
+
+                return [
+                    'keys' => array_values(array_filter(array_keys($section), 'is_string')),
+                    'heading_bytes' => is_string($section['heading'] ?? null) ? strlen($section['heading']) : null,
+                    'content_bytes' => is_string($section['content'] ?? null) ? strlen($section['content']) : null,
+                    'evidence_ids' => is_array($section['evidence_ids'] ?? null)
+                        ? array_values(array_filter($section['evidence_ids'], 'is_string'))
+                        : [],
+                    'inference_type' => get_debug_type($section['inference'] ?? null),
+                    'confidence' => is_string($section['confidence'] ?? null) ? $section['confidence'] : null,
+                ];
+            }, $sections),
+            'clarification_question_bytes' => is_string($data['clarification_question'] ?? null)
+                ? strlen($data['clarification_question'])
+                : null,
+            'insufficient_reason_bytes' => is_string($data['insufficient_reason'] ?? null)
+                ? strlen($data['insufficient_reason'])
+                : null,
+        ];
     }
 }

@@ -9,34 +9,62 @@ use App\Exceptions\AgentContractException;
 class AnswerDraftParser
 {
     /** @return array<string, mixed> */
-    public function schema(): array
+    public function schema(?string $requiredType = null): array
     {
+        if ($requiredType !== null && ! in_array(
+            $requiredType,
+            ['answer', 'clarification', 'insufficient_evidence'],
+            true,
+        )) {
+            throw new \InvalidArgumentException("Unsupported answer type: {$requiredType}");
+        }
+
+        $sections = [
+            'type' => 'array',
+            'items' => [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'required' => ['heading', 'content', 'evidence_ids', 'inference', 'confidence'],
+                'properties' => [
+                    'heading' => ['type' => 'string', 'minLength' => 1],
+                    'content' => ['type' => 'string', 'minLength' => 1],
+                    'evidence_ids' => [
+                        'type' => 'array',
+                        'minItems' => 1,
+                        'items' => ['type' => 'string', 'pattern' => '^E[1-9][0-9]*$'],
+                    ],
+                    'inference' => ['type' => 'boolean'],
+                    'confidence' => ['type' => 'string', 'enum' => ['high', 'medium', 'low']],
+                ],
+            ],
+        ];
+        if ($requiredType === 'answer') {
+            $sections['minItems'] = 1;
+        } elseif ($requiredType !== null) {
+            $sections['maxItems'] = 0;
+        }
+
+        $required = ['type', 'sections'];
+        if ($requiredType === 'clarification') {
+            $required[] = 'clarification_question';
+        } elseif ($requiredType === 'insufficient_evidence') {
+            $required[] = 'insufficient_reason';
+        }
+
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['type', 'sections'],
+            'required' => $required,
             'properties' => [
-                'type' => ['type' => 'string', 'enum' => ['answer', 'clarification', 'insufficient_evidence']],
-                'sections' => [
-                    'type' => 'array',
-                    'items' => [
-                        'type' => 'object',
-                        'additionalProperties' => false,
-                        'required' => ['heading', 'content', 'evidence_ids', 'inference', 'confidence'],
-                        'properties' => [
-                            'heading' => ['type' => 'string'],
-                            'content' => ['type' => 'string'],
-                            'evidence_ids' => [
-                                'type' => 'array',
-                                'items' => ['type' => 'string', 'pattern' => '^E[1-9][0-9]*$'],
-                            ],
-                            'inference' => ['type' => 'boolean'],
-                            'confidence' => ['type' => 'string', 'enum' => ['high', 'medium', 'low']],
-                        ],
-                    ],
+                'type' => [
+                    'type' => 'string',
+                    'enum' => $requiredType === null
+                        ? ['answer', 'clarification', 'insufficient_evidence']
+                        : [$requiredType],
                 ],
-                'clarification_question' => ['type' => 'string'],
-                'insufficient_reason' => ['type' => 'string'],
+                'sections' => $sections,
+                'clarification_question' => ['type' => 'string', 'minLength' => 1],
+                'insufficient_reason' => ['type' => 'string', 'minLength' => 1],
             ],
         ];
     }

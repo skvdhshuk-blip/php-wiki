@@ -38,11 +38,12 @@ QueryPlan
 - 三个知识工具只返回有身份的 JSON envelope；工具输出本身不是正式引用。
 - `EvidenceBundleBuilder` 只消费本次运行内完成且成功的工具调用，重新核对 Wiki SHA-256、raw 路径、raw SHA-256 和 locator；`EvidenceIdRegistry` 保证早期证据失效后 ID 也不会被另一条证据复用。
 - `RetrievalEvidencePublisher` 在每次工具完成后发布新增 EvidenceItem 和完整 coverage，下一次工具调用前 UI 已能看到进展。
-- 答案 Agent 没有工具，只接收 QueryPlan 和 EvidenceBundle。模型生成的未知引用、无证据 section、未披露缺口或冲突、没有同时引用冲突双方、过高置信度都会被拒绝。
+- 答案 Agent 没有工具，只接收 QueryPlan、EvidenceBundle 和应用选择的单一答案类型。JSON Schema 进入提示词，但 Parser + Verifier 才是结构权威，不能依赖兼容网关执行 enum 或 minItems。
+- 模型生成的未知引用、无证据 section、未披露冲突、没有同时引用冲突双方、过高置信度都会被拒绝；证据缺口由 Renderer 根据 EvidenceBundle 固定追加，避免把确定性披露交给模型措辞。
 - Verifier 只允许一次基于错误清单的修正；第二次仍失败时不创建 assistant message。
 - SQLite 先持久化语义事件，Reverb 仍只广播 `{run_id, sequence, type}` 失效通知。
 
-固定的 50 题验收集位于 `resources/core-agent/acceptance-corpus.json`，对应知识夹具位于 `resources/core-agent/workspace/`。`php-wiki:benchmark-core-agent --live` 默认在临时工作区和可回滚数据库事务中运行夹具，从持久化事件和正式消息重建观察结果；夹具运行不会读取或修改用户的 Wiki。报告保存夹具 SHA-256，并验证引用数量、视觉/PDF 证据类型、冲突双方引用、终态、覆盖、预算和事件顺序。`--workspace=configured` 只提供当前知识库诊断，不作为固定验收结果。整个过程不读取模型思维链。
+固定的 50 题验收集位于 `resources/core-agent/acceptance-corpus.json`，对应知识夹具位于 `resources/core-agent/workspace/`。`php-wiki:benchmark-core-agent --live` 默认在临时工作区和可回滚数据库事务中运行夹具，从持久化事件和正式消息重建观察结果；夹具运行不会读取或修改用户的 Wiki。报告保存夹具 SHA-256，并验证引用数量、视觉/PDF 证据类型、冲突双方引用、终态、覆盖、预算和事件顺序。`--ids` 可生成固定的跨分类 live 子集；每个 case 还保存答案合约、语义事件类型及不含原文的来源路径、哈希与 locator，失败时仅保存脱敏错误和 JSON 形状。`--workspace=configured` 只提供当前知识库诊断，不作为固定验收结果。整个过程不读取模型思维链。
 
 ## 提案事务
 

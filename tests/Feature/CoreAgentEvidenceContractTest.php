@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Entities\AgentToolInvocation;
 use App\Entities\AnswerDraft;
 use App\Entities\AnswerSection;
+use App\Entities\EvidenceBundle;
 use App\Entities\QueryPlan;
 use App\Models\WikiSource;
 use App\Repositories\Source\SourceRepository;
@@ -123,6 +124,58 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertNotEmpty($bundle->warnings);
     }
 
+    public function test_explicit_knowledge_absence_stays_a_gap_instead_of_becoming_an_answer(): void
+    {
+        $page = "# Index\n\n未列出的火星办公室地址不属于本知识库。\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/index.md', $page);
+
+        $bundle = app(EvidenceBundleBuilder::class)->build(
+            app(QueryPlanningService::class)->plan('知识库中记录的火星办公室地址是什么？'),
+            [new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/index.md'],
+                $this->pageEnvelope('wiki/index.md', $page),
+                false,
+            )],
+        );
+
+        $this->assertCount(1, $bundle->items);
+        $this->assertSame('gap', $bundle->coverage['Q1']);
+        $this->assertSame(['知识库中记录的火星办公室地址是什么？'], $bundle->gaps);
+    }
+
+    public function test_high_confidence_raw_evidence_can_cover_a_cross_language_question(): void
+    {
+        $raw = "The mark has two red cube outlines.\n";
+        File::put($this->wikiRoot.'/raw/brand.md', $raw);
+        $sha = hash('sha256', $raw);
+        WikiSource::query()->create([
+            'path' => 'raw/brand.md',
+            'type' => 'markdown',
+            'sha256' => $sha,
+            'size' => strlen($raw),
+            'mtime' => 1,
+            'status' => 'ready',
+        ]);
+        $page = "# Brand\n\nThe mark has two red cube outlines. "
+            ."[[source:raw/brand.md|sha256:{$sha}|lines:1-1]]\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/brand.md', $page);
+
+        $bundle = app(EvidenceBundleBuilder::class)->build(
+            app(QueryPlanningService::class)->plan('品牌图标由几个红色立方体轮廓组成？'),
+            [new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/brand.md'],
+                $this->pageEnvelope('wiki/concepts/brand.md', $page),
+                false,
+            )],
+        );
+
+        $this->assertSame('covered', $bundle->coverage['Q1']);
+    }
+
     public function test_malformed_shorthand_source_reference_cannot_fall_back_to_low_confidence_wiki_evidence(): void
     {
         $page = "# Fact\n\n模型缩写引用 [[source:wiki/75]]\n";
@@ -206,6 +259,15 @@ class CoreAgentEvidenceContractTest extends TestCase
         $rendered = app(AnswerRenderer::class)->render($valid, $bundle);
         $this->assertStringContainsString('[^E1]', $rendered);
         $this->assertStringNotContainsString('[[source:wiki/75]]', $rendered);
+
+        $mixedCoverage = new EvidenceBundle(
+            items: $bundle->items,
+            coverage: ['Q1' => 'covered', 'Q2' => 'gap'],
+            gaps: ['第二个子问题没有可验证证据。'],
+        );
+        $renderedWithGap = app(AnswerRenderer::class)->render($valid, $mixedCoverage);
+        $this->assertStringContainsString('**证据缺口**', $renderedWithGap);
+        $this->assertStringContainsString('第二个子问题没有可验证证据', $renderedWithGap);
     }
 
     public function test_read_tools_return_identity_bound_json_envelopes(): void
@@ -263,6 +325,37 @@ class CoreAgentEvidenceContractTest extends TestCase
         $budget->admitSearch('fact policy');
         $budget->recordSearchResults([]);
         $this->assertSame(2, $budget->usage()['no_new_evidence_rounds']);
+    }
+
+    public function test_rejected_over_budget_attempt_does_not_become_a_second_budget_authority(): void
+    {
+        $page = "# Policy\n\n远程办公申请提前三天。\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/index.md', $page);
+        $invocations = [];
+        foreach (range(1, 4) as $index) {
+            $invocations[] = new AgentToolInvocation(
+                "run:tool:{$index}",
+                'ReadWikiPage',
+                ['path' => 'wiki/index.md'],
+                $this->pageEnvelope('wiki/index.md', $page),
+                false,
+            );
+        }
+        $invocations[] = new AgentToolInvocation(
+            'run:tool:5',
+            'ReadWikiPage',
+            ['path' => 'wiki/index.md'],
+            'Knowledge read budget exhausted (4/4).',
+            true,
+        );
+
+        $bundle = app(EvidenceBundleBuilder::class)->build(
+            app(QueryPlanningService::class)->plan('远程办公申请要提前多久？'),
+            $invocations,
+        );
+
+        $this->assertCount(4, $bundle->items);
+        $this->assertStringContainsString('调用失败', implode(' ', $bundle->warnings));
     }
 
     public function test_numeric_disagreement_is_preserved_as_conflicting_evidence(): void

@@ -104,6 +104,18 @@ class CoreAgentBenchmarkObserverTest extends TestCase
         $this->assertTrue($observation['normal_nonempty']);
         $this->assertSame(1, $observation['cited_evidence_count']);
         $this->assertSame(['wiki_statement'], $observation['cited_evidence_kinds']);
+        $this->assertSame('normal', $observation['termination_reason']);
+        $this->assertNull($observation['failure_reason']);
+        $this->assertSame([], $observation['verification_failures']);
+        $this->assertSame([
+            'evidence_id' => 'E1',
+            'wiki_path' => 'wiki/index.md',
+            'wiki_revision_or_hash' => str_repeat('a', 64),
+            'raw_path' => null,
+            'raw_sha256' => null,
+            'locator' => 'lines:3-3',
+        ], $observation['cited_sources'][0]);
+        $this->assertContains('evidence_added', $observation['semantic_event_types']);
         $this->assertTrue($observation['citations_resolvable']);
         $this->assertTrue($observation['evidence_traceable']);
         $this->assertTrue($observation['raw_references_valid']);
@@ -112,5 +124,37 @@ class CoreAgentBenchmarkObserverTest extends TestCase
         $this->assertTrue($observation['coverage_terminal']);
         $this->assertTrue($observation['semantic_events_ordered']);
         $this->assertFalse($observation['sensitive_leak']);
+    }
+
+    public function test_failed_response_diagnostic_records_json_shape_without_model_content(): void
+    {
+        $runs = app(AgentRunRepository::class);
+        $chats = app(ChatRepository::class);
+        $thread = $chats->createThread();
+        $run = $runs->createQueued('query', 'question', threadId: $thread->id);
+        $runs->start($run);
+        $runs->fail($run, 'verification failed', responseText: json_encode([
+            'type' => 'answer',
+            'sections' => [[
+                'title' => 'private heading',
+                'content' => 'private model content',
+                'evidence_ids' => ['E1'],
+                'inference' => false,
+                'confidence' => 'high',
+            ]],
+        ], JSON_THROW_ON_ERROR));
+
+        $entry = app(CoreAgentAcceptanceCorpus::class)->all()[0];
+        $observation = app(CoreAgentBenchmarkObserver::class)->observe(
+            $entry,
+            $runs->withDetails($run->id) ?? $run,
+        );
+
+        $shape = $observation['failed_response_shape'];
+        $this->assertSame('answer', $shape['type']);
+        $this->assertSame(1, $shape['sections_count']);
+        $this->assertSame(['title', 'content', 'evidence_ids', 'inference', 'confidence'], $shape['sections'][0]['keys']);
+        $this->assertSame(strlen('private model content'), $shape['sections'][0]['content_bytes']);
+        $this->assertStringNotContainsString('private model content', json_encode($shape, JSON_THROW_ON_ERROR));
     }
 }

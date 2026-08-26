@@ -83,14 +83,25 @@ class QueryWikiWorkflow
         if (! $evidence instanceof EvidenceBundle) {
             throw new AgentContractException('检索没有生成 EvidenceBundle。', $retrieval->result->text);
         }
+        $requiredAnswerType = $this->requiredAnswerType($plan, $evidence);
+        $answerSchema = $this->answerParser->schema($requiredAnswerType);
+        $this->runs->event($run, 'answer_contract_selected', [
+            'required_type' => $requiredAnswerType,
+            'validation_authority' => 'application',
+        ]);
 
         $answer = $this->execution->invoke(
             $run,
             $this->agents->answerAgent(),
-            $this->answerPrompt((string) $run->prompt, $plan->toArray(), $evidence->toArray()),
+            $this->answerPrompt(
+                (string) $run->prompt,
+                $plan->toArray(),
+                $evidence->toArray(),
+                $requiredAnswerType,
+                $answerSchema,
+            ),
             allowTextFallback: true,
             emitText: false,
-            responseSchema: $this->answerParser->schema(),
         );
         $fallbackUsed = $answer->fallbackUsed;
 
@@ -108,12 +119,13 @@ class QueryWikiWorkflow
                     (string) $run->prompt,
                     $plan->toArray(),
                     $evidence->toArray(),
+                    $requiredAnswerType,
+                    $answerSchema,
                     $answer->result->text,
                     $errors,
                 ),
                 allowTextFallback: true,
                 emitText: false,
-                responseSchema: $this->answerParser->schema(),
             );
             $fallbackUsed = $fallbackUsed || $answer->fallbackUsed;
             $this->runs->event($run, 'verification_started', [
@@ -175,29 +187,53 @@ class QueryWikiWorkflow
     /**
      * @param  array<string, mixed>  $plan
      * @param  array<string, mixed>  $evidence
+     * @param  array<string, mixed>  $schema
      */
-    private function answerPrompt(string $question, array $plan, array $evidence): string
-    {
+    private function answerPrompt(
+        string $question,
+        array $plan,
+        array $evidence,
+        string $requiredAnswerType,
+        array $schema,
+    ): string {
         return "用户问题：\n{$question}\n\nQueryPlan：\n".$this->json($plan)
             ."\n\nEvidenceBundle（唯一证据源）：\n".$this->json($evidence)
-            ."\n\n只输出符合 schema 的 JSON。证据不足或问题有实质歧义时使用对应 type。";
+            ."\n\nJSON Schema（应用会在落库前严格验证）：\n".$this->json($schema)
+            ."\n\n本次必须输出 type={$requiredAnswerType}，只输出符合 schema 的 JSON。字段名必须逐字使用 sections、heading、content、evidence_ids、inference、confidence；禁止改成 answer 或 title。"
+            .'answer 的 sections 不得为空；EvidenceBundle 的每个 conflict_evidence 组必须至少引用其中两个 ID，并在 content 明确披露冲突。';
     }
 
     /**
      * @param  array<string, mixed>  $plan
      * @param  array<string, mixed>  $evidence
+     * @param  array<string, mixed>  $schema
      * @param  list<string>  $errors
      */
     private function repairPrompt(
         string $question,
         array $plan,
         array $evidence,
+        string $requiredAnswerType,
+        array $schema,
         string $draft,
         array $errors,
     ): string {
-        return $this->answerPrompt($question, $plan, $evidence)
+        return $this->answerPrompt($question, $plan, $evidence, $requiredAnswerType, $schema)
             ."\n\n上一次草稿：\n{$draft}\n\n确定性验证错误：\n- ".implode("\n- ", $errors)
-            ."\n\n只修正这些错误；仍不得新增 Evidence ID。";
+            ."\n\n逐项修正：保留 type={$requiredAnswerType}；answer 至少生成一个非空 section，且每个 section 都填写 heading、content、evidence_ids、inference、confidence。仍不得新增 Evidence ID。";
+    }
+
+    private function requiredAnswerType(QueryPlan $plan, EvidenceBundle $evidence): string
+    {
+        if ($plan->requiresClarification) {
+            return 'clarification';
+        }
+        if (in_array('covered', $evidence->coverage, true)
+            || in_array('conflict', $evidence->coverage, true)) {
+            return 'answer';
+        }
+
+        return 'insufficient_evidence';
     }
 
     /**

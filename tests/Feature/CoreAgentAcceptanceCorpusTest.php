@@ -81,6 +81,7 @@ class CoreAgentAcceptanceCorpusTest extends TestCase
         $this->assertFalse($report['passed']);
         $this->assertSame(50, $report['corpus_size']);
         $this->assertSame(1, $report['observed_cases']);
+        $this->assertSame('answer', $report['cases'][0]['observation']['answer_type']);
         $citations = collect($report['gates'])->firstWhere('name', 'citations_resolvable');
         $this->assertFalse($citations['passed']);
     }

@@ -138,6 +138,11 @@ class QueryWikiWorkflowContractTest extends TestCase
         $this->assertTrue($run->events()->where('type', 'tool_completed')->get()->contains(
             fn ($event): bool => ($event->payloadData()['is_error'] ?? false) === true,
         ));
+        $contract = $run->events()->where('type', 'answer_contract_selected')->firstOrFail();
+        $this->assertSame([
+            'required_type' => 'answer',
+            'validation_authority' => 'application',
+        ], $contract->payloadData());
     }
 
     public function test_incomplete_tool_lifecycle_is_rejected(): void

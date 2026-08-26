@@ -136,12 +136,13 @@ php artisan php-wiki:doctor --live
 php artisan php-wiki:rebuild-search
 php artisan php-wiki:benchmark-core-agent
 php artisan php-wiki:benchmark-core-agent --live --limit=1
+php artisan php-wiki:benchmark-core-agent --live --ids=lookup-01,conflict-01,unknown-01
 php artisan php-wiki:benchmark-core-agent --live --workspace=configured --limit=1
 ```
 
 `doctor --live` 会发送一张临时生成的测试图片，要求视觉模型调用无副作用工具，并验证正常终止和非空最终文本。
 
-`benchmark-core-agent` 会验证固定的 50 题中英文验收集及其仓库内知识夹具。加 `--live` 才会真实调用模型并把机器可读报告写入 `storage/app/core-agent-benchmarks/`；默认把夹具临时挂载为 Wiki，并在数据库事务中运行，结束后回滚来源、FTS、聊天和运行记录，不读取或污染 `PHP_WIKI_ROOT`。完整验收不传 `--limit`；smoke 可以显式限制题数。`--workspace=configured` 仅用于诊断当前知识库，不作为可重复验收证据。真实运行仍受 `PHP_WIKI_ALLOW_REMOTE_MODEL` 和环境 API Key 门禁保护。
+`benchmark-core-agent` 会验证固定的 50 题中英文验收集及其仓库内知识夹具。加 `--live` 才会真实调用模型并把机器可读报告写入 `storage/app/core-agent-benchmarks/`；默认把夹具临时挂载为 Wiki，并在数据库事务中运行，结束后回滚来源、FTS、聊天和运行记录，不读取或污染 `PHP_WIKI_ROOT`。完整验收不传 `--limit`；smoke 可以显式限制题数，`--ids` 可按固定题号组成跨分类子集，且不能与 `--limit` 同时使用。报告只保存安全诊断、语义事件类型和精确来源定位，不保存提示词、答案正文、工具原始 payload 或证据原文。`--workspace=configured` 仅用于诊断当前知识库，不作为可重复验收证据。真实运行仍受 `PHP_WIKI_ALLOW_REMOTE_MODEL` 和环境 API Key 门禁保护。
 
 ## 原生 macOS 开发
 

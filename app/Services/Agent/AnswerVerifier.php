@@ -92,9 +92,6 @@ class AnswerVerifier
             static fn ($section): array => $section->evidenceIds,
             $draft->sections,
         ))));
-        if ($evidence->gaps !== [] && preg_match('/证据不足|缺口|无法确认|未知|未找到/u', $content) !== 1) {
-            $errors[] = '答案没有披露 EvidenceBundle 中的证据缺口。';
-        }
         if ($evidence->conflicts !== [] && preg_match('/冲突|矛盾|不一致|相反/u', $content) !== 1) {
             $errors[] = '答案没有披露 EvidenceBundle 中的冲突证据。';
         }

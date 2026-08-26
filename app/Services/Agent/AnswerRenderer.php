@@ -33,6 +33,13 @@ class AnswerRenderer
             $prefix = $section->inference ? '> **推断**（'.$this->confidence($section->confidence).'）'."\n\n" : '';
             $sections[] = "## {$section->heading}\n\n{$prefix}{$section->content} ".implode(' ', $citations);
         }
+        if ($evidence->gaps !== []) {
+            $gaps = array_map(
+                fn (string $gap): string => '> - '.$this->oneLine($gap),
+                $evidence->gaps,
+            );
+            $sections[] = "> **证据缺口**\n>\n".implode("\n", $gaps);
+        }
 
         $sources = [];
         foreach ($referenced as $evidenceId => $item) {

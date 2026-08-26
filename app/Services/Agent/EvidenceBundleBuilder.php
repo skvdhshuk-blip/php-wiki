@@ -91,11 +91,12 @@ class EvidenceBundleBuilder
     {
         $searches = count(array_filter(
             $invocations,
-            static fn (AgentToolInvocation $call): bool => $call->name === 'SearchWiki',
+            static fn (AgentToolInvocation $call): bool => $call->name === 'SearchWiki' && ! $call->isError,
         ));
         $reads = count(array_filter(
             $invocations,
-            static fn (AgentToolInvocation $call): bool => in_array($call->name, ['ReadWikiPage', 'ReadSourceExcerpt'], true),
+            static fn (AgentToolInvocation $call): bool => ! $call->isError
+                && in_array($call->name, ['ReadWikiPage', 'ReadSourceExcerpt'], true),
         ));
         if ($searches > $plan->maxSearches || $reads > $plan->maxReads) {
             throw new AgentContractException(
@@ -290,7 +291,8 @@ class EvidenceBundleBuilder
             $key = 'Q'.($index + 1);
             $matching = array_values(array_filter(
                 $items,
-                fn (EvidenceItem $item): bool => $this->matches($subquestion, $item),
+                fn (EvidenceItem $item): bool => $this->matches($subquestion, $item)
+                    && ! $this->statesKnowledgeAbsence($item),
             ));
             if ($matching === []) {
                 $coverage[$key] = 'gap';
@@ -346,14 +348,45 @@ class EvidenceBundleBuilder
 
     private function matches(string $question, EvidenceItem $item): bool
     {
-        $haystack = mb_strtolower($item->wikiPath.' '.$item->claimHint.' '.$item->quote);
-        foreach ($this->tokens($question) as $token) {
+        $evidenceText = $item->claimHint.' '.$item->quote;
+        if ($item->confidence === 'high'
+            && $item->rawPath !== null
+            && $this->hasHanCharacters($question) !== $this->hasHanCharacters($evidenceText)) {
+            return true;
+        }
+
+        $haystack = mb_strtolower($item->wikiPath.' '.$evidenceText);
+        $tokens = $this->tokens($question);
+        $matched = 0;
+        foreach ($tokens as $token) {
             if (str_contains($haystack, $token)) {
-                return true;
+                $matched++;
             }
         }
 
-        return false;
+        if ($tokens === []) {
+            return false;
+        }
+
+        $minimum = count($tokens) <= 2 ? 1 : max(2, (int) ceil(count($tokens) * 0.2));
+
+        return $matched >= $minimum;
+    }
+
+    private function hasHanCharacters(string $text): bool
+    {
+        return preg_match('/\p{Han}/u', $text) === 1;
+    }
+
+    private function statesKnowledgeAbsence(EvidenceItem $item): bool
+    {
+        $text = mb_strtolower($item->claimHint.' '.$item->quote);
+
+        return preg_match(
+            '/不属于(?:本|该)?知识库|知识库[^。.!?]{0,40}未(?:记录|收录|列出)|'
+            .'not\s+(?:documented|listed|recorded|present)\b|outside\s+(?:the\s+)?knowledge\s+base/iu',
+            $text,
+        ) === 1;
     }
 
     /** @return list<string> */
@@ -372,7 +405,11 @@ class EvidenceBundleBuilder
             }
         }
 
-        $stop = ['什么', '怎么', '如何', '为何', '请问', '哪些', '是否', '以及', '并且', '同时'];
+        $stop = [
+            '什么', '怎么', '如何', '为何', '请问', '哪些', '是否', '以及', '并且', '同时',
+            'what', 'which', 'when', 'where', 'who', 'why', 'how', 'the', 'this', 'that',
+            'according', 'wiki',
+        ];
 
         return array_values(array_diff(array_unique($tokens), $stop));
     }

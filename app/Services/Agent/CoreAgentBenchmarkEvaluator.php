@@ -54,6 +54,7 @@ class CoreAgentBenchmarkEvaluator
             $cases[] = [
                 'id' => $entry['id'],
                 'category' => $entry['category'],
+                'observation' => $this->reportableObservation($observation),
                 'checks' => $checks,
                 'passed' => ! in_array(false, $checks, true),
             ];
@@ -116,6 +117,34 @@ class CoreAgentBenchmarkEvaluator
             : [];
 
         return is_string($kind) && in_array($kind, $observed, true);
+    }
+
+    /**
+     * Keep reports auditable without persisting prompts, model prose, tool payloads, or evidence quotes.
+     *
+     * @param  array<string, mixed>  $observation
+     * @return array<string, mixed>
+     */
+    private function reportableObservation(array $observation): array
+    {
+        $keys = [
+            'run_id',
+            'status',
+            'termination_reason',
+            'failure_reason',
+            'failed_response_shape',
+            'verification_failures',
+            'mode',
+            'answer_type',
+            'required_answer_type',
+            'evidence_count',
+            'cited_evidence_count',
+            'cited_evidence_kinds',
+            'cited_sources',
+            'semantic_event_types',
+        ];
+
+        return array_intersect_key($observation, array_fill_keys($keys, true));
     }
 
     /**

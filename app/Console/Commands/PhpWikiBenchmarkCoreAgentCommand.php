@@ -19,6 +19,7 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
     protected $signature = 'php-wiki:benchmark-core-agent
         {--live : Execute real model runs instead of only validating the corpus}
         {--limit=0 : Limit live runs; zero executes the complete 50-question corpus}
+        {--ids= : Execute a comma-separated fixed subset of corpus IDs}
         {--workspace=fixture : fixture uses the isolated acceptance knowledge base; configured uses PHP_WIKI_ROOT}
         {--output= : JSON report path}';
 
@@ -49,7 +50,26 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
         }
 
         $limit = max(0, (int) $this->option('limit'));
-        if ($limit > 0) {
+        $idsOption = trim((string) $this->option('ids'));
+        if ($limit > 0 && $idsOption !== '') {
+            $this->components->error('--limit and --ids cannot be used together.');
+
+            return self::INVALID;
+        }
+        if ($idsOption !== '') {
+            $requestedIds = array_values(array_unique(array_filter(array_map(
+                'trim',
+                explode(',', $idsOption),
+            ))));
+            $entriesById = array_column($entries, null, 'id');
+            $unknownIds = array_values(array_diff($requestedIds, array_keys($entriesById)));
+            if ($unknownIds !== []) {
+                $this->components->error('Unknown corpus IDs: '.implode(', ', $unknownIds));
+
+                return self::INVALID;
+            }
+            $entries = array_map(static fn (string $id): array => $entriesById[$id], $requestedIds);
+        } elseif ($limit > 0) {
             $entries = array_slice($entries, 0, $limit);
         }
         $workspaceMode = trim((string) $this->option('workspace'));
@@ -75,7 +95,7 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
             : $execute();
         $report['generated_at'] = now()->toIso8601String();
         $report['model'] = config('phpwiki.model.name');
-        $report['scope'] = $limit > 0 ? 'smoke' : 'full';
+        $report['scope'] = $idsOption !== '' ? 'subset' : ($limit > 0 ? 'smoke' : 'full');
         $report['workspace'] = $workspaceMode;
         if ($workspaceMode === 'fixture') {
             $report['fixture'] = $benchmarkWorkspace->manifest();
