@@ -10,6 +10,7 @@ use App\Repositories\Agent\AgentRunRepository;
 use App\Repositories\Chat\ChatRepository;
 use App\Services\Agent\AgentRunner;
 use App\Services\Agent\QueryWikiWorkflow;
+use App\Services\Source\SourceScanner;
 use App\Services\Wiki\WikiWorkspace;
 use HaoCode\Sdk\Agent;
 use HaoCode\Sdk\QueryResult;
@@ -66,7 +67,7 @@ class QueryWikiWorkflowContractTest extends TestCase
 
     public function test_query_completes_with_warning_after_at_least_one_successful_read(): void
     {
-        $content = "# Index\n\n职场生存的秘诀是保持边界。\n";
+        $content = $this->sourceBackedPage('职场生存的秘诀是保持边界。');
         app(WikiWorkspace::class)->atomicWrite('wiki/index.md', $content);
         $envelope = $this->pageEnvelope('wiki/index.md', $content);
         $invocation = 0;
@@ -235,7 +236,7 @@ class QueryWikiWorkflowContractTest extends TestCase
 
     public function test_invalid_answer_is_repaired_once_against_the_same_evidence_bundle(): void
     {
-        $content = "# Index\n\n职场边界需要明确。\n";
+        $content = $this->sourceBackedPage('职场边界需要明确。');
         app(WikiWorkspace::class)->atomicWrite('wiki/index.md', $content);
         $envelope = $this->pageEnvelope('wiki/index.md', $content);
         $invocation = 0;
@@ -328,6 +329,15 @@ class QueryWikiWorkflowContractTest extends TestCase
             'content' => $content,
             'source_citations' => [],
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function sourceBackedPage(string $claim): string
+    {
+        file_put_contents($this->wikiRoot.'/raw/query-evidence.md', $claim."\n");
+        app(SourceScanner::class)->scan();
+        $sha256 = hash('sha256', $claim."\n");
+
+        return "# Index\n\n{$claim} [[source:raw/query-evidence.md|sha256:{$sha256}|lines:1-1]]\n";
     }
 }
 

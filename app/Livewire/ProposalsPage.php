@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Models\User;
 use App\Models\WikiProposal;
 use App\Repositories\Wiki\ProposalRepository;
 use App\Services\Wiki\ProposalApplyService;
@@ -17,7 +18,7 @@ use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
-#[Layout('layouts.app')]
+#[Layout('layouts.admin')]
 #[Title('变更提案')]
 class ProposalsPage extends Component
 {
@@ -80,7 +81,11 @@ class ProposalsPage extends Component
     {
         $proposal = $this->selected ?? throw new \RuntimeException('未选择提案。');
         try {
-            $commit = $apply->apply($proposal, Auth::user());
+            $user = Auth::user();
+            if (! $user instanceof User) {
+                throw new \RuntimeException('用户身份已失效，请重新登录。');
+            }
+            $commit = $apply->apply($proposal, $user);
             unset($this->selected, $this->proposals, $this->diffs);
             Flux::toast(variant: 'success', text: '已应用并提交：'.substr($commit->commit_hash, 0, 12));
         } catch (\Throwable $exception) {

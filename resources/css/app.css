@@ -68,6 +68,88 @@
 .wiki-markdown pre { overflow: auto; border-radius: .75rem; background: var(--color-zinc-950); padding: 1rem; color: var(--color-zinc-100); }
 .wiki-markdown pre code { background: transparent; padding: 0; }
 
+.agent-answer-markdown h2:first-child,
+.agent-answer-markdown h3:first-child { margin-top: 0; }
+.agent-answer-markdown {
+    color: var(--color-zinc-700);
+    font-size: .9375rem;
+    line-height: 1.9;
+}
+.agent-answer-markdown h2 {
+    margin-top: 1.65em;
+    margin-bottom: .55em;
+    font-size: 1.35rem;
+    letter-spacing: -.025em;
+}
+.agent-answer-markdown p { margin-block: .85em; }
+.agent-answer-action {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border-radius: .6rem;
+    padding: .4rem .55rem;
+    color: var(--color-zinc-500);
+    font-weight: 500;
+    transition: color 150ms ease, background-color 150ms ease;
+}
+.agent-answer-action:hover { background: var(--color-zinc-100); color: var(--color-zinc-800); }
+.agent-answer-markdown a[href^="#evidence-"] {
+    display: inline-flex;
+    margin-inline: .15rem;
+    border-radius: 999px;
+    background: var(--color-indigo-50);
+    padding: .05rem .45rem;
+    color: var(--color-indigo-700);
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1.4;
+    text-decoration: none;
+    vertical-align: .1em;
+}
+.dark .agent-answer-markdown a[href^="#evidence-"] {
+    background: color-mix(in srgb, var(--color-indigo-950) 80%, transparent);
+    color: var(--color-indigo-200);
+}
+.dark .agent-answer-markdown { color: var(--color-zinc-200); }
+.dark .agent-answer-action { color: var(--color-zinc-400); }
+.dark .agent-answer-action:hover { background: var(--color-zinc-800); color: var(--color-zinc-100); }
+
+.agent-thread-list,
+.agent-chat-feed { scrollbar-width: thin; scrollbar-color: var(--color-zinc-300) transparent; }
+.agent-thread-list::-webkit-scrollbar,
+.agent-chat-feed::-webkit-scrollbar { width: 6px; }
+.agent-thread-list::-webkit-scrollbar-thumb,
+.agent-chat-feed::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--color-zinc-300); }
+.agent-composer textarea[data-flux-textarea] {
+    min-height: 4.25rem;
+    resize: none;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.agent-composer textarea[data-flux-textarea]:focus {
+    box-shadow: none;
+    outline: none;
+    --tw-ring-shadow: 0 0 #0000;
+}
+
+@media (max-width: 1023px) {
+    .agent-chat-shell { height: 100%; min-height: 0; border-radius: 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .agent-chat-shell *,
+    .agent-chat-shell *::before,
+    .agent-chat-shell *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+[x-cloak] { display: none !important; }
+
 @layer theme {
     .dark {
         --color-accent: var(--color-white);

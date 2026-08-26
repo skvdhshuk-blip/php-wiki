@@ -4,12 +4,12 @@ namespace App\Services\Agent\Tools;
 
 use App\Repositories\Source\SourceRepository;
 use App\Services\Agent\QueryToolBudget;
-use App\Services\Wiki\WikiPathGuard;
+use App\Services\Source\SourceCatalog;
 
 class ReadSourceExcerptTool extends WikiSdkTool
 {
     public function __construct(
-        private readonly WikiPathGuard $paths,
+        private readonly SourceCatalog $catalog,
         private readonly SourceRepository $sources,
         private readonly ?QueryToolBudget $budget = null,
     ) {}
@@ -21,13 +21,13 @@ class ReadSourceExcerptTool extends WikiSdkTool
 
     public function description(): string
     {
-        return 'Read a bounded raw-source excerpt. Returns a JSON evidence candidate with path, SHA-256, locator, and numbered quote.';
+        return 'Read a bounded registered-source excerpt. Returns a JSON evidence candidate with path, SHA-256, locator, and numbered quote.';
     }
 
     public function parameters(): array
     {
         return [
-            'path' => ['type' => 'string', 'description' => 'Registered raw/... path', 'required' => true],
+            'path' => ['type' => 'string', 'description' => 'Registered Source Catalog path', 'required' => true],
             'start_line' => ['type' => 'integer', 'description' => 'First line, starting at 1', 'required' => true],
             'end_line' => ['type' => 'integer', 'description' => 'Last line, at most 200 lines later', 'required' => true],
         ];
@@ -36,7 +36,7 @@ class ReadSourceExcerptTool extends WikiSdkTool
     public function handle(array $input): string
     {
         $this->budget?->admitRead();
-        $path = $this->paths->assertRawPath((string) ($input['path'] ?? ''));
+        $path = $this->catalog->assertSourcePath((string) ($input['path'] ?? ''));
         $source = $this->sources->findByPath($path);
         if ($source === null) {
             throw new \InvalidArgumentException("Source is not registered: {$path}");
@@ -51,7 +51,7 @@ class ReadSourceExcerptTool extends WikiSdkTool
             throw new \InvalidArgumentException('A source excerpt may contain at most 200 lines.');
         }
 
-        $lines = file($this->paths->absolute($path), FILE_IGNORE_NEW_LINES);
+        $lines = file($this->catalog->absolute($path), FILE_IGNORE_NEW_LINES);
         if ($lines === false) {
             throw new \RuntimeException("Unable to read source: {$path}");
         }

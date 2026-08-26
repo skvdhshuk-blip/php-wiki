@@ -1,10 +1,7 @@
 ---
-id: knowledge-authority
-title: 知识证据契约
-type: concept
+type: wiki/concept
 status: active
-created_at: 2026-08-26
-updated_at: 2026-08-26
+updated: 2026-08-26
 source_ids: [raw/knowledge-contract.md]
 confidence: high
 ---

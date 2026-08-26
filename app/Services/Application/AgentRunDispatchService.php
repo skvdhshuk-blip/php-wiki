@@ -77,20 +77,16 @@ class AgentRunDispatchService
         $sourceIds = array_values(array_unique($matches[1]));
         $date = now()->toDateString();
         $path = 'wiki/syntheses/answer-'.$message->id.'.md';
-        $id = 'answer-'.$message->id;
         $frontmatterSources = $sourceIds === []
             ? '[]'
             : '['.implode(', ', array_map(static fn (string $item): string => '"'.addslashes($item).'"', $sourceIds)).']';
         $content = <<<MARKDOWN
----
-id: {$id}
-title: 对话沉淀 {$message->id}
-type: synthesis
-status: draft
-created_at: {$date}
-updated_at: {$date}
-source_ids: {$frontmatterSources}
-confidence: medium
+        ---
+        type: wiki/synthesis
+        status: draft
+        updated: {$date}
+        source_ids: {$frontmatterSources}
+        confidence: medium
 ---
 
 # 对话沉淀 {$message->id}

@@ -28,6 +28,7 @@ class AgentRunActivityPresenter
         $gaps = [];
         $conflicts = [];
         $semanticWarnings = [];
+        $answerType = null;
 
         foreach ($events as $event) {
             $payload = $event->payloadData();
@@ -51,11 +52,15 @@ class AgentRunActivityPresenter
                 $hasWarnings = $hasWarnings || $semanticWarnings !== [];
             } elseif ($event->type === 'verification_started') {
                 $stage = 'verifying';
+            } elseif ($event->type === 'answer_contract_selected') {
+                $stage = 'composing';
+                $answerType = is_string($payload['required_type'] ?? null) ? $payload['required_type'] : null;
             } elseif ($event->type === 'verification_failed') {
                 $stage = 'repairing';
                 $hasWarnings = true;
             } elseif ($event->type === 'answer_completed') {
                 $stage = 'completed';
+                $answerType = is_string($payload['answer_type'] ?? null) ? $payload['answer_type'] : $answerType;
             } elseif ($event->type === 'turn_started') {
                 $turn = (int) ($payload['turn'] ?? $turn);
                 $thinking = false;
@@ -74,6 +79,8 @@ class AgentRunActivityPresenter
                 $tools[] = [
                     'sequence' => $event->sequence,
                     'name' => $name,
+                    'label' => $this->toolLabel($name),
+                    'target' => $this->toolTarget($name, is_array($payload['input'] ?? null) ? $payload['input'] : []),
                     'status' => 'running',
                     'input' => $payload['input'] ?? [],
                     'output_preview' => '',
@@ -93,6 +100,8 @@ class AgentRunActivityPresenter
                     $tools[] = [
                         'sequence' => $event->sequence,
                         'name' => $name,
+                        'label' => $this->toolLabel($name),
+                        'target' => null,
                         'input' => [],
                     ];
                 }
@@ -126,6 +135,8 @@ class AgentRunActivityPresenter
             'mode' => $mode,
             'mode_label' => $mode === 'research' ? '深度研究' : ($mode === 'lookup' ? '快速查找' : null),
             'scope_reason' => $scopeReason,
+            'answer_type' => $answerType,
+            'answer_type_label' => $this->answerTypeLabel($answerType),
             'evidence' => $evidence,
             'evidence_count' => count($evidence),
             'coverage' => $coverage,
@@ -140,9 +151,77 @@ class AgentRunActivityPresenter
             'partial_html' => $this->markdown->render($partialText),
             'response_html' => $this->markdown->render((string) $run->response_text),
             'tools' => $tools,
+            'steps' => $this->steps($stage, $run->status),
             'has_warnings' => $hasWarnings,
             'events' => $events,
         ];
+    }
+
+    /** @return list<array{label: string, state: string}> */
+    private function steps(string $stage, string $status): array
+    {
+        $current = match ($stage) {
+            'queued', 'starting', 'planning', 'planned' => 0,
+            'retrieving', 'reading' => 1,
+            'composing' => 2,
+            'verifying', 'repairing' => 3,
+            'completed' => 4,
+            default => 0,
+        };
+        $terminal = in_array($status, [AgentRunStatus::Completed->value, AgentRunStatus::Cancelled->value, AgentRunStatus::Failed->value], true);
+
+        return array_map(
+            static function (string $label, int $index) use ($current, $status, $terminal): array {
+                $state = $index < $current ? 'completed' : ($index === $current ? 'active' : 'pending');
+                if ($status === AgentRunStatus::Completed->value) {
+                    $state = 'completed';
+                } elseif ($terminal && $index === $current) {
+                    $state = 'stopped';
+                }
+
+                return ['label' => $label, 'state' => $state];
+            },
+            ['理解问题', '检索知识', '组织答案', '核验证据'],
+            range(0, 3),
+        );
+    }
+
+    private function toolLabel(string $name): string
+    {
+        return match ($name) {
+            'ReadWikiPage' => '读取 Wiki 页面',
+            'SearchWiki' => '搜索知识库',
+            'ReadSourceExcerpt' => '读取原始资料',
+            'ProposeWikiPage' => '生成 Wiki 提案',
+            default => $name,
+        };
+    }
+
+    /** @param array<string, mixed> $input */
+    private function toolTarget(string $name, array $input): ?string
+    {
+        $target = match ($name) {
+            'SearchWiki' => $input['query'] ?? null,
+            default => $input['path'] ?? null,
+        };
+        if (! is_string($target) || trim($target) === '') {
+            return null;
+        }
+        if ($name === 'ReadSourceExcerpt' && isset($input['start_line'], $input['end_line'])) {
+            $target .= ':'.(int) $input['start_line'].'-'.(int) $input['end_line'];
+        }
+
+        return mb_substr(trim($target), 0, 160);
+    }
+
+    private function answerTypeLabel(?string $type): ?string
+    {
+        return match ($type) {
+            'answer' => '已找到可核验证据',
+            'clarification' => '需要补充问题范围',
+            'insufficient_evidence' => '知识库证据不足',
+            default => null,
+        };
     }
 
     private function stageLabel(string $stage): string

@@ -17,6 +17,7 @@ class ProposalApplyService
         private readonly ChangeSetValidator $validator,
         private readonly WikiSearchService $search,
         private readonly ProposalRepository $proposals,
+        private readonly WikiLinkParser $links,
     ) {}
 
     public function apply(WikiProposal $proposal, User $user): WikiCommit
@@ -95,8 +96,8 @@ class ProposalApplyService
                 continue;
             }
 
-            $link = "[[page:{$path}]]";
-            if (! str_contains($index, $link)) {
+            $link = $this->links->link((string) $path);
+            if (! $this->links->contains($index, (string) $path)) {
                 $index .= "\n- {$link}\n";
             }
         }

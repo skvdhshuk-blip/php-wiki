@@ -5,7 +5,6 @@ namespace App\Services\Source;
 use App\Entities\NormalizedSource;
 use App\Models\WikiSource;
 use App\Repositories\Source\SourceRepository;
-use App\Services\Wiki\WikiPathGuard;
 use Illuminate\Support\Facades\File;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -13,15 +12,15 @@ use Symfony\Component\Process\Process;
 class SourceNormalizer
 {
     public function __construct(
-        private readonly WikiPathGuard $paths,
+        private readonly SourceCatalog $catalog,
         private readonly VisualPreprocessor $visuals,
         private readonly SourceRepository $sources,
     ) {}
 
     public function normalize(WikiSource $source): NormalizedSource
     {
-        $sourcePath = $this->paths->assertRawPath($source->path);
-        $absolute = $this->paths->absolute($sourcePath);
+        $sourcePath = $this->catalog->assertSourcePath($source->path);
+        $absolute = $this->catalog->absolute($sourcePath);
         $cacheRelative = 'visual-cache/'.$source->sha256;
         $cache = storage_path('app/private/'.$cacheRelative);
         File::deleteDirectory($cache);
@@ -85,9 +84,9 @@ class SourceNormalizer
 
             $relative = $this->resolveLinkedPath($source->path, rawurldecode(explode('#', $link, 2)[0]));
             try {
-                $relative = $this->paths->assertRawPath($relative);
+                $relative = $this->catalog->assertSourcePath($relative);
                 $outputName = sprintf('linked-%04d.jpg', $sequence);
-                $output = $this->visuals->prepare($this->paths->absolute($relative), $cache.'/'.$outputName);
+                $output = $this->visuals->prepare($this->catalog->absolute($relative), $cache.'/'.$outputName);
                 $images[] = $output;
                 $this->artifact($source, 'linked_image', $cacheRelative.'/'.$outputName, $sequence, null, ['source_path' => $relative]);
                 $sequence++;
@@ -200,7 +199,7 @@ class SourceNormalizer
             }
             if ($segment === '..') {
                 if (count($resolved) <= 1) {
-                    throw new \InvalidArgumentException('本地图片路径逃逸出 raw/。');
+                    throw new \InvalidArgumentException('本地图片路径逃逸出当前 Source Catalog 根目录。');
                 }
                 array_pop($resolved);
 

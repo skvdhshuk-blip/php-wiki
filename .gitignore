@@ -9,7 +9,11 @@
 /storage/*.key
 /storage/pail
 /vendor
+# User knowledge workspaces and runtime-derived state must never be published.
 /wiki-data
+/database/*.sqlite*
+/storage/app/wiki-workspace
+/storage/app/core-agent-benchmarks
 .env
 .env.backup
 .env.production

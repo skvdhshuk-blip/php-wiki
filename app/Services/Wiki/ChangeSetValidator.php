@@ -10,6 +10,7 @@ class ChangeSetValidator
         private readonly WikiPathGuard $paths,
         private readonly WikiWorkspace $workspace,
         private readonly CitationValidator $citations,
+        private readonly WikiLinkParser $links,
     ) {}
 
     /** @return list<string> */
@@ -64,8 +65,10 @@ class ChangeSetValidator
         }
 
         foreach ($proposal->changes->where('operation', 'write') as $change) {
-            preg_match_all('/\[\[page:([^\]]+)\]\]/', (string) $change->content, $links);
-            foreach ($links[1] as $target) {
+            if ($change->path === 'AGENTS.md') {
+                continue;
+            }
+            foreach ($this->links->targets((string) $change->content) as $target) {
                 try {
                     $target = $this->paths->assertManagedPath($target);
                 } catch (\InvalidArgumentException $exception) {

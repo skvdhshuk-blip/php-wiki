@@ -70,6 +70,14 @@ class QueryPlanningService
             }
         }
 
+        $sentences = array_values(array_filter(
+            preg_split('/[？?]+/u', $question) ?: [],
+            static fn (string $sentence): bool => trim($sentence) !== '',
+        ));
+        if (count($sentences) > 1) {
+            return true;
+        }
+
         return preg_match('/[；;].+[；;]|(?:以及|并且|同时).+(?:以及|并且|同时)|,.*\band\b/iu', $question) === 1;
     }
 

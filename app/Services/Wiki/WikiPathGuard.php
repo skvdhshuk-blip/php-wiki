@@ -32,22 +32,6 @@ class WikiPathGuard
         return $path;
     }
 
-    public function assertRawPath(string $path): string
-    {
-        $path = $this->normalizeRelative($path);
-        if (! str_starts_with($path, 'raw/')) {
-            throw new InvalidArgumentException('来源文件必须位于 raw/ 目录。');
-        }
-
-        $absolute = $this->absolute($path);
-        if (! is_file($absolute) || is_link($absolute)) {
-            throw new InvalidArgumentException('来源文件不存在或是符号链接。');
-        }
-        $this->assertContainedRealPath($absolute);
-
-        return $path;
-    }
-
     public function absolute(string $relative): string
     {
         $relative = $this->normalizeRelative($relative);

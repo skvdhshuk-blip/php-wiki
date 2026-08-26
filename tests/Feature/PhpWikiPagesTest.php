@@ -33,7 +33,12 @@ class PhpWikiPagesTest extends TestCase
 
     public function test_authenticated_user_can_render_every_product_page(): void
     {
-        foreach (['dashboard', 'sources', 'wiki', 'chat', 'proposals', 'runs', 'lint', 'system'] as $route) {
+        $this->get(route('chat'))
+            ->assertOk()
+            ->assertSeeHtml('data-surface="consumer"');
+
+        foreach (['dashboard', 'sources', 'wiki', 'proposals', 'runs', 'lint', 'system'] as $page) {
+            $route = 'admin.'.$page;
             $this->get(route($route))->assertOk();
         }
     }

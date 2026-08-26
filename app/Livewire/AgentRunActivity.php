@@ -22,6 +22,8 @@ class AgentRunActivity extends Component
 
     public bool $showResponse = false;
 
+    public bool $compact = false;
+
     #[Computed]
     public function run(): AgentRun
     {
@@ -39,8 +41,14 @@ class AgentRunActivity extends Component
     /** @param array<string, mixed> $event */
     public function refreshRun(array $event = []): void
     {
-        if (isset($event['run_id']) && (int) $event['run_id'] !== $this->runId) {
-            return;
+        if (array_key_exists('run_id', $event)) {
+            $eventRunId = $event['run_id'];
+            if (! is_int($eventRunId) && (! is_string($eventRunId) || preg_match('/\A\d+\z/', $eventRunId) !== 1)) {
+                return;
+            }
+            if ((is_int($eventRunId) ? $eventRunId : (int) $eventRunId) !== $this->runId) {
+                return;
+            }
         }
 
         unset($this->run, $this->activity);

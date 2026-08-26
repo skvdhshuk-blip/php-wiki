@@ -17,10 +17,14 @@ PHP_WIKI_ALLOW_REMOTE_MODEL=true
 不会主动发送：
 
 - `.env` 或 API Key
-- `raw/` 之外的宿主文件
+- `PHP_WIKI_SOURCE_ROOTS` 之外的宿主文件
 - 没有进入某次 Agent 上下文的其他资料
 - 远程网页或远程图片内容
 
 应用不提供文件上传、WebFetch、Bash 或通用写工具。所有 Markdown 渲染禁用原始 HTML 和不安全链接。API Key 只从环境变量读取，状态页仅显示“已配置”，运行事件会隐藏提案完整内容。
+
+`PHP_WIKI_SOURCE_ROOTS` 是显式数据边界。只配置愿意被扫描并可能发送到远程模型的目录；应用拒绝工作区外路径、受管 `wiki/`、`AGENTS.md`、重叠来源根和符号链接逃逸。
+
+代码仓库只跟踪 `resources/core-agent/workspace/` 中明确标记的合成验收夹具。真实 `PHP_WIKI_ROOT`、默认 `wiki-data/`、SQLite、运行日志、缓存、提案和 benchmark 报告均不得提交到应用仓库；知识库自身的 Git 历史只保存在独立工作区中。
 
 若不能接受资料离开本机，请保持 `PHP_WIKI_ALLOW_REMOTE_MODEL=false`；扫描、确定性 Lint、Wiki 阅读和提案审批仍可本地使用，模型任务会明确失败。

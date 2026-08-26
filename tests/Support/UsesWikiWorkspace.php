@@ -15,6 +15,7 @@ trait UsesWikiWorkspace
         File::makeDirectory($this->wikiRoot, 0755, true);
         config([
             'phpwiki.root' => $this->wikiRoot,
+            'phpwiki.source_roots' => ['raw'],
             'phpwiki.allow_remote_model' => false,
         ]);
     }

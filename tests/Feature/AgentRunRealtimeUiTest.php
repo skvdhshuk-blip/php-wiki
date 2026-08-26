@@ -43,7 +43,7 @@ class AgentRunRealtimeUiTest extends TestCase
             ->assertOk();
     }
 
-    public function test_livewire_activity_renders_structured_tool_card_without_thinking_content(): void
+    public function test_full_run_activity_keeps_structured_tool_diagnostics_without_thinking_content(): void
     {
         $run = app(AgentRunRepository::class)->createQueued('query', 'question');
         app(AgentRunRepository::class)->start($run);

@@ -10,7 +10,7 @@ class WikiMarkdownRenderer
     {
         $markdown = preg_replace_callback(
             '/\[\[page:([^\]]+)\]\]/',
-            static fn (array $match): string => '['.$match[1].']('.route('wiki', ['path' => $match[1]], false).')',
+            static fn (array $match): string => '['.$match[1].']('.route('admin.wiki', ['path' => $match[1]], false).')',
             $markdown,
         ) ?? $markdown;
         $markdown = preg_replace_callback(

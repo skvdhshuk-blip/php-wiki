@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Models\ChatMessage;
 use App\Models\ChatThread;
 use App\Repositories\Chat\ChatRepository;
+use App\Services\Agent\AgentAnswerPresenter;
 use App\Services\Application\AgentRunDispatchService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
@@ -15,7 +16,19 @@ use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-#[Layout('layouts.app')]
+/**
+ * @property-read Collection<int, ChatMessage> $messages
+ * @property-read array<int, array{
+ *     type: string,
+ *     type_label: string,
+ *     type_tone: string,
+ *     has_conflicts: bool,
+ *     html: string,
+ *     citations: list<array<string, string|null>>,
+ *     suggestions: list<string>
+ * }> $answers
+ */
+#[Layout('layouts.chat')]
 #[Title('Agent 对话')]
 class AgentChatPage extends Component
 {
@@ -42,18 +55,54 @@ class AgentChatPage extends Component
         return app(ChatRepository::class)->messages($this->threadId);
     }
 
+    /**
+     * @return array<int, array{
+     *     type: string,
+     *     type_label: string,
+     *     type_tone: string,
+     *     has_conflicts: bool,
+     *     html: string,
+     *     citations: list<array<string, string|null>>,
+     *     suggestions: list<string>
+     * }>
+     */
+    #[Computed]
+    public function answers(): array
+    {
+        $presenter = app(AgentAnswerPresenter::class);
+
+        return $this->messages
+            ->filter(static fn (ChatMessage $message): bool => $message->role === 'assistant')
+            ->mapWithKeys(static fn (ChatMessage $message): array => [
+                $message->id => $presenter->present($message),
+            ])
+            ->all();
+    }
+
+    /** @return array<int, list<array<string, string|null>>> */
+    #[Computed]
+    public function evidenceIndex(): array
+    {
+        $index = [];
+        foreach ($this->answers as $messageId => $answer) {
+            $index[$messageId] = $answer['citations'];
+        }
+
+        return $index;
+    }
+
     public function newThread(): void
     {
         $thread = app(ChatRepository::class)->createThread();
         $this->threadId = $thread->id;
-        unset($this->threads, $this->messages);
+        unset($this->threads, $this->messages, $this->answers, $this->evidenceIndex);
     }
 
     public function selectThread(int $threadId): void
     {
         app(ChatRepository::class)->findThread($threadId);
         $this->threadId = $threadId;
-        unset($this->messages);
+        unset($this->messages, $this->answers, $this->evidenceIndex);
     }
 
     public function send(AgentRunDispatchService $dispatch, ChatRepository $chats): void
@@ -62,7 +111,7 @@ class AgentChatPage extends Component
         $thread = $chats->findThread($this->threadId);
         $run = $dispatch->query($thread, $this->question);
         $this->question = '';
-        unset($this->messages, $this->threads);
+        unset($this->messages, $this->threads, $this->answers, $this->evidenceIndex);
         $this->dispatch('agent-chat-updated');
         Flux::toast(variant: 'success', text: "Agent 运行已入队：{$run->uuid}");
     }
@@ -75,8 +124,19 @@ class AgentChatPage extends Component
             return;
         }
 
-        unset($this->messages, $this->threads);
+        unset($this->messages, $this->threads, $this->answers, $this->evidenceIndex);
         $this->dispatch('agent-chat-updated');
+    }
+
+    public function useSuggestion(string $suggestion): void
+    {
+        $suggestion = trim($suggestion);
+        if ($suggestion === '' || mb_strlen($suggestion) > 240) {
+            return;
+        }
+
+        $this->question = $suggestion;
+        $this->dispatch('focus-agent-composer');
     }
 
     public function saveAnswer(int $messageId, AgentRunDispatchService $dispatch, ChatRepository $chats): void

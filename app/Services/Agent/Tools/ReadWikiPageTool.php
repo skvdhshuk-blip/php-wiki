@@ -3,6 +3,7 @@
 namespace App\Services\Agent\Tools;
 
 use App\Services\Agent\QueryToolBudget;
+use App\Services\Source\SourceLinkResolver;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
 
@@ -11,6 +12,7 @@ class ReadWikiPageTool extends WikiSdkTool
     public function __construct(
         private readonly WikiPathGuard $paths,
         private readonly WikiWorkspace $workspace,
+        private readonly SourceLinkResolver $sourceLinks,
         private readonly ?QueryToolBudget $budget = null,
     ) {}
 
@@ -21,7 +23,7 @@ class ReadWikiPageTool extends WikiSdkTool
 
     public function description(): string
     {
-        return 'Read one approved Markdown page. Returns a JSON envelope with path, SHA-256, content, and declared raw-source citations.';
+        return 'Read one approved Markdown page. Returns content, verified source citations, and legacy source-link candidates that must be read before use as facts.';
     }
 
     public function parameters(): array
@@ -47,6 +49,7 @@ class ReadWikiPageTool extends WikiSdkTool
             'sha256' => hash('sha256', $content),
             'content' => $content,
             'source_citations' => array_values(array_unique($matches[0])),
+            'source_candidates' => $this->sourceLinks->candidates($content),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 

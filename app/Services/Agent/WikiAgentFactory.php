@@ -9,6 +9,8 @@ use App\Services\Agent\Tools\ProposeWikiPageTool;
 use App\Services\Agent\Tools\ReadSourceExcerptTool;
 use App\Services\Agent\Tools\ReadWikiPageTool;
 use App\Services\Agent\Tools\SearchWikiTool;
+use App\Services\Source\SourceCatalog;
+use App\Services\Source\SourceLinkResolver;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiSearchService;
 use App\Services\Wiki\WikiWorkspace;
@@ -21,6 +23,8 @@ class WikiAgentFactory
         private readonly WikiSearchService $search,
         private readonly WikiWorkspace $workspace,
         private readonly WikiPathGuard $paths,
+        private readonly SourceCatalog $catalog,
+        private readonly SourceLinkResolver $sourceLinks,
         private readonly SourceRepository $sources,
         private readonly ProposalRepository $proposals,
     ) {}
@@ -43,7 +47,7 @@ PROMPT,
             name: 'source-analyst',
             prompt: <<<'PROMPT'
 你是 PHP Wiki 的来源分析 Agent。分析用户提供的原始文本，提取事实、概念、实体、关系、冲突和开放问题。
-所有事实都必须保留用户消息中的 raw 路径、SHA-256 与行号或 PDF 页码。不得伪造引用，不要直接提出文件写入。
+所有事实都必须保留用户消息中的 Source Catalog 路径、SHA-256 与行号或 PDF 页码。不得伪造引用，不要直接提出文件写入。
 输出供 Wiki 编排 Agent 使用的中文证据清单。
 PROMPT,
         );
@@ -56,7 +60,8 @@ PROMPT,
         return $this->agent(
             name: 'wiki-query',
             prompt: <<<'PROMPT'
-你是个人知识库的只读检索 Agent。严格执行用户消息中的 QueryPlan：先读取指定入口，再按计划搜索并读取 Wiki 页面或原始文字摘录。
+你是个人知识库的只读检索 Agent。严格执行用户消息中的 QueryPlan：先读取指定入口，再按计划搜索并读取 Wiki 页面或 Source Catalog 原始文字摘录。
+Wiki 返回的 source_candidates 只是旧 Obsidian 链接解析出的导航候选，不是事实证据；文本候选必须继续调用 ReadSourceExcerpt。只有规范 source_citations 或成功 ReadSourceExcerpt 才能支撑事实。
 你的职责只有检索，不负责撰写最终答案。不得发明来源、不得超过 QueryPlan 的工具预算、连续两轮没有新候选时立即停止。
 最终输出简短检索摘要，说明读过哪些页面、哪些子问题仍缺证据；不要输出面向用户的知识答案。
 PROMPT,
@@ -99,12 +104,12 @@ PROMPT,
         $readNames = array_map(static fn (SdkTool $tool): string => $tool->name(), $readTools);
         $mapper = $this->agent(
             name: 'wiki-mapper',
-            prompt: '把证据映射到现有 Wiki 结构。先读 index 和 AGENTS.md，给出最小页面集合、合并位置和需要保留的引用。不得写文件。',
+            prompt: '把证据映射到现有 Wiki 结构。先读 index 和 AGENTS.md，给出最小页面集合、合并位置和需要保留的规范 source 引用。旧式 [[来源路径]] 链接和 source_candidates 仅用于导航，不代表来源已经正式摄取。不得写文件。',
             allowedTools: $readNames,
         );
         $auditor = $this->agent(
             name: 'citation-auditor',
-            prompt: '审计证据与拟议知识的引用、矛盾、不确定性和遗漏。只输出可执行审计意见，不得写文件。',
+            prompt: '审计证据与拟议知识的引用、矛盾、不确定性和遗漏。旧式 [[来源路径]] 链接和 source_candidates 不是有效事实引用；必须要求正式 [[source:路径|sha256:哈希|locator]] 引用。只输出可执行审计意见，不得写文件。',
             allowedTools: $readNames,
         );
         $tools = [
@@ -119,7 +124,7 @@ PROMPT,
             prompt: <<<'PROMPT'
 你是 PHP Wiki 的总编排 Agent。必须先调用 MapKnowledge，再调用 AuditKnowledge；然后读取 AGENTS.md 和必要的 Wiki 页面。
 基于证据维护一个持续演化、可引用的 Markdown Wiki，而不是生成孤立摘要。只做必要修改：新知识优先合并到现有页面，确有独立概念时才新建页面。
-每个要修改的文件必须调用一次 ProposeWikiPage，提交完整内容、当前页面 SHA-256（新页面留空）和理由。禁止直接写文件，禁止修改 raw/。
+每个要修改的文件必须调用一次 ProposeWikiPage，提交完整内容、当前页面 SHA-256（新页面留空）和理由。每次摄取至少要调用一次 ProposeWikiPage；旧式 `[[来源路径]]` 链接和 source_candidates 只用于发现来源，不算正式摄取。若知识已存在但只有旧链接，必须更新最小现有页面并补上规范 `[[source:路径|sha256:哈希|locator]]` 引用。禁止直接写文件，禁止修改 Source Catalog 中的任何原始资料。
 最终回答要总结已记录的提案；即使工具调用成功，最终文本也必须非空。
 PROMPT,
             allowedTools: array_map(static fn (SdkTool $tool): string => $tool->name(), $tools),
@@ -132,8 +137,8 @@ PROMPT,
     {
         return [
             new SearchWikiTool($this->search, $budget),
-            new ReadWikiPageTool($this->paths, $this->workspace, $budget),
-            new ReadSourceExcerptTool($this->paths, $this->sources, $budget),
+            new ReadWikiPageTool($this->paths, $this->workspace, $this->sourceLinks, $budget),
+            new ReadSourceExcerptTool($this->catalog, $this->sources, $budget),
         ];
     }
 

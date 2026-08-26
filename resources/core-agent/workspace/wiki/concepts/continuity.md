@@ -1,10 +1,7 @@
 ---
-id: continuity
-title: 备份、恢复与灾备
-type: concept
+type: wiki/concept
 status: active
-created_at: 2026-08-26
-updated_at: 2026-08-26
+updated: 2026-08-26
 source_ids: [raw/continuity.md]
 confidence: high
 ---

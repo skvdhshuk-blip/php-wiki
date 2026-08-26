@@ -2,6 +2,10 @@
 
 return [
     'root' => env('PHP_WIKI_ROOT', storage_path('app/wiki-workspace')),
+    'source_roots' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('PHP_WIKI_SOURCE_ROOTS', 'raw,GetNote导入,工作,AI,个人')),
+    ))),
     'allow_remote_model' => (bool) env('PHP_WIKI_ALLOW_REMOTE_MODEL', false),
 
     'model' => [

@@ -1,10 +1,7 @@
 ---
-id: releases
-title: 发布运营
-type: concept
+type: wiki/concept
 status: active
-created_at: 2026-08-26
-updated_at: 2026-08-26
+updated: 2026-08-26
 source_ids: [raw/releases.md]
 confidence: high
 ---

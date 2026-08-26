@@ -17,6 +17,9 @@ use App\Services\Agent\QueryPlanningService;
 use App\Services\Agent\QueryToolBudget;
 use App\Services\Agent\Tools\ReadSourceExcerptTool;
 use App\Services\Agent\Tools\ReadWikiPageTool;
+use App\Services\Source\SourceCatalog;
+use App\Services\Source\SourceLinkResolver;
+use App\Services\Source\SourceScanner;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,6 +58,13 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertSame(4, $research->maxSearches);
         $this->assertSame(12, $research->maxReads);
         $this->assertGreaterThanOrEqual(2, count($research->subquestions));
+
+        $twoQuestions = $planner->plan('为什么不能揣测用户行为？这条原则来自哪一章？');
+        $this->assertSame(QueryPlan::RESEARCH, $twoQuestions->mode);
+        $this->assertSame([
+            '为什么不能揣测用户行为',
+            '这条原则来自哪一章',
+        ], $twoQuestions->subquestions);
     }
 
     public function test_evidence_is_built_only_from_a_successful_tool_call_and_current_raw_hash(): void
@@ -91,6 +101,84 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertSame('lines:2-2', $bundle->items[0]->locator);
         $this->assertSame('保持清晰边界是职场生存的重要原则。', $bundle->items[0]->quote);
         $this->assertSame('covered', $bundle->coverage['Q1']);
+    }
+
+    public function test_same_source_revision_and_locator_is_not_counted_twice_or_reported_as_a_conflict(): void
+    {
+        $raw = "第一行\n永远不要想当然地揣测用户行为背后的原因。\n";
+        File::put($this->wikiRoot.'/raw/growth.md', $raw);
+        $sha = hash('sha256', $raw);
+        WikiSource::query()->create([
+            'path' => 'raw/growth.md',
+            'type' => 'markdown',
+            'sha256' => $sha,
+            'size' => strlen($raw),
+            'mtime' => 1,
+            'status' => 'ready',
+        ]);
+        $page = "# 增长\n\n不要揣测原因。 [[source:raw/growth.md|sha256:{$sha}|lines:2-2]]\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/growth.md', $page);
+
+        $bundle = app(EvidenceBundleBuilder::class)->build(
+            app(QueryPlanningService::class)->plan('原文说不要想当然地揣测什么？'),
+            [
+                new AgentToolInvocation(
+                    'run:tool:1',
+                    'ReadWikiPage',
+                    ['path' => 'wiki/concepts/growth.md'],
+                    $this->pageEnvelope('wiki/concepts/growth.md', $page),
+                    false,
+                ),
+                new AgentToolInvocation(
+                    'run:tool:2',
+                    'ReadSourceExcerpt',
+                    ['path' => 'raw/growth.md', 'start_line' => 2, 'end_line' => 2],
+                    json_encode([
+                        'raw_path' => 'raw/growth.md',
+                        'raw_sha256' => $sha,
+                        'locator' => 'lines:2-2',
+                        'quote' => '2: 永远不要想当然地揣测用户行为背后的原因。',
+                    ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    false,
+                ),
+            ],
+        );
+
+        $this->assertCount(1, $bundle->items);
+        $this->assertSame([], $bundle->conflicts);
+        $this->assertSame('covered', $bundle->coverage['Q1']);
+    }
+
+    public function test_a_causal_question_stays_a_gap_when_the_source_only_repeats_the_principle(): void
+    {
+        $raw = "永远不要想当然地揣测用户行为背后的原因。\n来自章节：第六章 激活\n";
+        File::put($this->wikiRoot.'/raw/principle.md', $raw);
+        $sha = hash('sha256', $raw);
+        WikiSource::query()->create([
+            'path' => 'raw/principle.md',
+            'type' => 'markdown',
+            'sha256' => $sha,
+            'size' => strlen($raw),
+            'mtime' => 1,
+            'status' => 'ready',
+        ]);
+        $page = "# 原则\n\n原则与章节。 [[source:raw/principle.md|sha256:{$sha}|lines:1-2]]\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/principle.md', $page);
+        $plan = app(QueryPlanningService::class)->plan('为什么不能想当然地揣测用户行为背后的原因？这条原则来自哪一章？');
+
+        $bundle = app(EvidenceBundleBuilder::class)->build($plan, [
+            new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/principle.md'],
+                $this->pageEnvelope('wiki/concepts/principle.md', $page),
+                false,
+            ),
+        ]);
+
+        $this->assertSame('gap', $bundle->coverage['Q1']);
+        $this->assertSame('covered', $bundle->coverage['Q2']);
+        $this->assertSame(['为什么不能想当然地揣测用户行为背后的原因'], $bundle->gaps);
     }
 
     public function test_stale_or_model_invented_source_reference_never_enters_bundle(): void
@@ -140,7 +228,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             )],
         );
 
-        $this->assertCount(1, $bundle->items);
+        $this->assertCount(0, $bundle->items);
         $this->assertSame('gap', $bundle->coverage['Q1']);
         $this->assertSame(['知识库中记录的火星办公室地址是什么？'], $bundle->gaps);
     }
@@ -199,8 +287,8 @@ class CoreAgentEvidenceContractTest extends TestCase
 
     public function test_evidence_ids_are_not_reused_when_an_earlier_item_becomes_invalid(): void
     {
-        $firstPage = "# First\n\n共同事实一。\n";
-        $secondPage = "# Second\n\n共同事实二。\n";
+        $firstPage = $this->sourceBackedPage('first.md', '共同事实一。');
+        $secondPage = $this->sourceBackedPage('second.md', '共同事实二。');
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/first.md', $firstPage);
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/second.md', $secondPage);
         $invocations = [
@@ -235,7 +323,7 @@ class CoreAgentEvidenceContractTest extends TestCase
 
     public function test_answer_verifier_rejects_unknown_evidence_and_renderer_owns_citation_syntax(): void
     {
-        $page = "# Index\n\n职场边界。\n";
+        $page = $this->sourceBackedPage('boundary.md', '职场边界。');
         app(WikiWorkspace::class)->atomicWrite('wiki/index.md', $page);
         $plan = app(QueryPlanningService::class)->plan('职场边界是什么？');
         $bundle = app(EvidenceBundleBuilder::class)->build($plan, [
@@ -289,6 +377,7 @@ class CoreAgentEvidenceContractTest extends TestCase
         $wikiEnvelope = json_decode((new ReadWikiPageTool(
             app(WikiPathGuard::class),
             app(WikiWorkspace::class),
+            app(SourceLinkResolver::class),
         ))->handle(['path' => 'wiki/sources/source.md']), true, flags: JSON_THROW_ON_ERROR);
         $this->assertSame('wiki/sources/source.md', $wikiEnvelope['path']);
         $this->assertSame(hash('sha256', $page), $wikiEnvelope['sha256']);
@@ -296,7 +385,7 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertCount(1, $wikiEnvelope['source_citations']);
 
         $sourceEnvelope = json_decode((new ReadSourceExcerptTool(
-            app(WikiPathGuard::class),
+            app(SourceCatalog::class),
             app(SourceRepository::class),
         ))->handle([
             'path' => 'raw/source.txt',
@@ -307,6 +396,37 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertSame($sha, $sourceEnvelope['raw_sha256']);
         $this->assertSame('lines:2-2', $sourceEnvelope['locator']);
         $this->assertSame('2: line two', $sourceEnvelope['quote']);
+    }
+
+    public function test_legacy_obsidian_source_link_is_only_exposed_as_a_registered_read_candidate(): void
+    {
+        config(['phpwiki.source_roots' => ['raw', 'GetNote导入']]);
+        File::ensureDirectoryExists($this->wikiRoot.'/GetNote导入');
+        File::put($this->wikiRoot.'/GetNote导入/职场边界.md', "边界来自原始笔记。\n");
+        app(SourceScanner::class)->scan();
+        $page = "# 职场\n\n结论。[[GetNote导入/职场边界]]\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/legacy.md', $page);
+
+        $envelope = json_decode((new ReadWikiPageTool(
+            app(WikiPathGuard::class),
+            app(WikiWorkspace::class),
+            app(SourceLinkResolver::class),
+        ))->handle(['path' => 'wiki/concepts/legacy.md']), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame([], $envelope['source_citations']);
+        $this->assertSame('GetNote导入/职场边界.md', $envelope['source_candidates'][0]['path']);
+        $bundle = app(EvidenceBundleBuilder::class)->build(
+            app(QueryPlanningService::class)->plan('职场边界来自哪里？'),
+            [new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/legacy.md'],
+                json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                false,
+            )],
+        );
+        $this->assertSame([], $bundle->items);
+        $this->assertStringContainsString('不能作为事实证据', implode(' ', $bundle->warnings));
     }
 
     public function test_query_tool_budget_rejects_identical_queries_and_stops_after_two_empty_rounds(): void
@@ -329,7 +449,7 @@ class CoreAgentEvidenceContractTest extends TestCase
 
     public function test_rejected_over_budget_attempt_does_not_become_a_second_budget_authority(): void
     {
-        $page = "# Policy\n\n远程办公申请提前三天。\n";
+        $page = $this->sourceBackedPage('policy.md', '远程办公申请提前三天。');
         app(WikiWorkspace::class)->atomicWrite('wiki/index.md', $page);
         $invocations = [];
         foreach (range(1, 4) as $index) {
@@ -354,7 +474,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             $invocations,
         );
 
-        $this->assertCount(4, $bundle->items);
+        $this->assertCount(1, $bundle->items);
         $this->assertStringContainsString('调用失败', implode(' ', $bundle->warnings));
     }
 
@@ -419,5 +539,22 @@ class CoreAgentEvidenceContractTest extends TestCase
             'content' => $content,
             'source_citations' => array_values(array_unique($matches[0])),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function sourceBackedPage(string $name, string $claim): string
+    {
+        $rawPath = 'raw/'.$name;
+        $raw = $claim."\n";
+        File::put($this->wikiRoot.'/'.$rawPath, $raw);
+        $sha256 = hash('sha256', $raw);
+        WikiSource::query()->updateOrCreate(['path' => $rawPath], [
+            'type' => 'markdown',
+            'sha256' => $sha256,
+            'size' => strlen($raw),
+            'mtime' => 1,
+            'status' => 'ready',
+        ]);
+
+        return "# Evidence\n\n{$claim} [[source:{$rawPath}|sha256:{$sha256}|lines:1-1]]\n";
     }
 }

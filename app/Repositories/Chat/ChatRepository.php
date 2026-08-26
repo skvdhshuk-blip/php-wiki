@@ -36,7 +36,7 @@ class ChatRepository
     {
         return ChatMessage::query()
             ->where('chat_thread_id', $threadId)
-            ->with('run')
+            ->with('run.events')
             ->orderBy('id')
             ->get();
     }

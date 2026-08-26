@@ -23,11 +23,11 @@
         <section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
             <div class="mb-4 flex items-center justify-between">
                 <flux:heading size="lg">最近运行</flux:heading>
-                <flux:button size="sm" variant="ghost" :href="route('runs')" wire:navigate>全部运行</flux:button>
+                <flux:button size="sm" variant="ghost" :href="route('admin.runs')" wire:navigate>全部运行</flux:button>
             </div>
             <div class="space-y-3">
                 @forelse ($runs as $run)
-                    <a href="{{ route('runs', ['run' => $run->id]) }}" wire:navigate class="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
+                    <a href="{{ route('admin.runs', ['run' => $run->id]) }}" wire:navigate class="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
                         <div>
                             <div class="font-medium">{{ $run->kind }}</div>
                             <div class="text-xs text-zinc-500">{{ $run->uuid }}</div>
@@ -45,7 +45,7 @@
         <section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
             <div class="mb-4 flex items-center justify-between">
                 <flux:heading size="lg">最近来源</flux:heading>
-                <flux:button size="sm" variant="ghost" :href="route('sources')" wire:navigate>来源管理</flux:button>
+                <flux:button size="sm" variant="ghost" :href="route('admin.sources')" wire:navigate>来源管理</flux:button>
             </div>
             <div class="space-y-3">
                 @forelse ($sources as $source)

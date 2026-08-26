@@ -3,34 +3,31 @@
     <head>
         @include('partials.head')
     </head>
-    <body class="min-h-screen bg-white dark:bg-zinc-800">
+    <body data-surface="admin" class="min-h-screen bg-white dark:bg-zinc-800">
         <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
             <flux:sidebar.header>
-                <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
+                <x-app-logo :sidebar="true" href="{{ route('admin.dashboard') }}" wire:navigate />
                 <flux:sidebar.collapse class="lg:hidden" />
             </flux:sidebar.header>
 
             <flux:sidebar.nav>
-                <flux:sidebar.group heading="知识工作台" class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                <flux:sidebar.group heading="管理后台" class="grid">
+                    <flux:sidebar.item icon="home" :href="route('admin.dashboard')" :current="request()->routeIs('admin.dashboard')" wire:navigate>
                         总览
                     </flux:sidebar.item>
-                    <flux:sidebar.item icon="folder" :href="route('sources')" :current="request()->routeIs('sources')" wire:navigate>
+                    <flux:sidebar.item icon="folder" :href="route('admin.sources')" :current="request()->routeIs('admin.sources')" wire:navigate>
                         本地来源
                     </flux:sidebar.item>
-                    <flux:sidebar.item icon="book-open" :href="route('wiki')" :current="request()->routeIs('wiki')" wire:navigate>
+                    <flux:sidebar.item icon="book-open" :href="route('admin.wiki')" :current="request()->routeIs('admin.wiki')" wire:navigate>
                         Wiki
                     </flux:sidebar.item>
-                    <flux:sidebar.item icon="chat-bubble-left-right" :href="route('chat')" :current="request()->routeIs('chat')" wire:navigate>
-                        Agent 对话
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="document-check" :href="route('proposals')" :current="request()->routeIs('proposals')" wire:navigate>
+                    <flux:sidebar.item icon="document-check" :href="route('admin.proposals')" :current="request()->routeIs('admin.proposals')" wire:navigate>
                         变更提案
                     </flux:sidebar.item>
-                    <flux:sidebar.item icon="play-circle" :href="route('runs')" :current="request()->routeIs('runs')" wire:navigate>
+                    <flux:sidebar.item icon="play-circle" :href="route('admin.runs')" :current="request()->routeIs('admin.runs')" wire:navigate>
                         Agent 运行
                     </flux:sidebar.item>
-                    <flux:sidebar.item icon="shield-check" :href="route('lint')" :current="request()->routeIs('lint')" wire:navigate>
+                    <flux:sidebar.item icon="shield-check" :href="route('admin.lint')" :current="request()->routeIs('admin.lint')" wire:navigate>
                         健康检查
                     </flux:sidebar.item>
                 </flux:sidebar.group>
@@ -39,7 +36,10 @@
             <flux:spacer />
 
             <flux:sidebar.nav>
-                <flux:sidebar.item icon="cog-6-tooth" :href="route('system')" :current="request()->routeIs('system')" wire:navigate>
+                <flux:sidebar.item icon="chat-bubble-left-right" :href="route('chat')" wire:navigate>
+                    打开知识助手
+                </flux:sidebar.item>
+                <flux:sidebar.item icon="cog-6-tooth" :href="route('admin.system')" :current="request()->routeIs('admin.system')" wire:navigate>
                     系统状态
                 </flux:sidebar.item>
             </flux:sidebar.nav>

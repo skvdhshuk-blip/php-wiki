@@ -10,7 +10,7 @@ class PhpWikiScanCommand extends Command
 {
     protected $signature = 'php-wiki:scan';
 
-    protected $description = 'Scan supported local files under raw/';
+    protected $description = 'Scan supported local files under configured Source Catalog roots';
 
     public function handle(WorkspaceInitializer $initializer, SourceScanner $scanner): int
     {

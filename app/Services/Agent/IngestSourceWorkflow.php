@@ -79,28 +79,41 @@ class IngestSourceWorkflow
         }
 
         $proposal = $this->proposals->createDraft($run, "摄取 {$source->path} 第 {$source->revision} 版");
-        $prompt = "请把以下证据收敛进 Wiki。来源={$source->path}，sha256={$source->sha256}。\n\n";
+        $prompt = <<<PROMPT
+请把以下待处理来源修订收敛进 Wiki。来源={$source->path}，sha256={$source->sha256}。
+
+本次运行只会处理尚未被当前 Wiki 修订正式吸收的来源。旧式 `[[{$source->path}]]` 链接和 ReadWikiPage 返回的 source_candidates 只是导航线索，不是已验证引用，也不能证明本次修订已经摄取。
+你必须至少调用一次 ProposeWikiPage：若知识已存在，就更新最小的现有页面，为相关陈述补上 `[[source:{$source->path}|sha256:{$source->sha256}|lines:<start>-<end>]]` 形式的规范引用；确有独立知识时才新建页面。不得以“已有旧链接”或“无需改动”为由跳过提案。
+
+PROMPT;
         foreach ($evidence as $index => $item) {
             $prompt .= '## Evidence '.($index + 1)."\n\n{$item}\n\n";
         }
 
-        $outcome = $this->execution->invoke($run, $this->agents->orchestrator($proposal), $prompt);
-        if ($outcome->result->terminationReason === RunTerminationReason::Cancelled) {
-            $this->cancel($run, $source, $outcome->result);
+        try {
+            $outcome = $this->execution->invoke($run, $this->agents->orchestrator($proposal), $prompt);
+            if ($outcome->result->terminationReason === RunTerminationReason::Cancelled) {
+                $this->proposals->invalidateDraft($proposal, '运行已取消，未形成可审批 ChangeSet。');
+                $this->cancel($run, $source, $outcome->result);
 
-            return;
+                return;
+            }
+
+            $this->assertToolContract($run);
+            $proposal = $this->proposals->reloadWithChanges($proposal);
+            $errors = $this->validator->validate($proposal);
+            $this->proposals->setValidation($proposal, $errors);
+            if ($errors !== []) {
+                throw new AgentContractException("提案未通过确定性验证：\n".implode("\n", $errors));
+            }
+
+            $this->sources->markReady($source);
+            $this->runs->completeWorkflow($run, $outcome->result, $outcome->fallbackUsed);
+        } catch (\Throwable $exception) {
+            $this->proposals->invalidateDraft($proposal, '关联 Agent 运行未形成有效 ChangeSet。');
+
+            throw $exception;
         }
-
-        $this->assertToolContract($run);
-        $proposal = $this->proposals->reloadWithChanges($proposal);
-        $errors = $this->validator->validate($proposal);
-        $this->proposals->setValidation($proposal, $errors);
-        if ($errors !== []) {
-            throw new AgentContractException("提案未通过确定性验证：\n".implode("\n", $errors));
-        }
-
-        $this->sources->markReady($source);
-        $this->runs->completeWorkflow($run, $outcome->result, $outcome->fallbackUsed);
     }
 
     /**

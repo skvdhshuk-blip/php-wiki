@@ -57,7 +57,7 @@ class ProposalApplyServiceTest extends TestCase
         $commit = app(ProposalApplyService::class)->apply($proposal->fresh(), User::factory()->create());
 
         $this->assertFileExists($this->wikiRoot.'/wiki/concepts/alpha.md');
-        $this->assertStringContainsString('wiki/concepts/alpha.md', file_get_contents($this->wikiRoot.'/wiki/index.md'));
+        $this->assertStringContainsString('[[wiki/concepts/alpha]]', file_get_contents($this->wikiRoot.'/wiki/index.md'));
         $this->assertSame(ProposalStatus::Applied->value, $proposal->fresh()->status);
         $this->assertSame(trim($this->git(['git', 'rev-parse', 'HEAD'])), $commit->commit_hash);
         $committed = $this->git(['git', 'show', '--pretty=', '--name-only', 'HEAD']);
@@ -161,21 +161,18 @@ class ProposalApplyServiceTest extends TestCase
     private function page(string $sha256): string
     {
         return <<<MARKDOWN
----
-id: alpha
-title: Alpha
-type: concept
-status: active
-created_at: 2026-08-26
-updated_at: 2026-08-26
-source_ids: [raw/note.md]
-confidence: high
----
+        ---
+        type: wiki/concept
+        status: active
+        updated: 2026-08-26
+        source_ids: [raw/note.md]
+        confidence: high
+        ---
 
-# Alpha
+        # Alpha
 
-Alpha 来自第一行。[[source:raw/note.md|sha256:{$sha256}|lines:1-1]]
-MARKDOWN;
+        Alpha 来自第一行。[[source:raw/note.md|sha256:{$sha256}|lines:1-1]]
+        MARKDOWN;
     }
 
     /** @param list<string> $command */

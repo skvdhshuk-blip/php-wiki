@@ -3,6 +3,52 @@ import Pusher from 'pusher-js';
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content;
 
+window.agentChatEvidence = (index) => ({
+    sourceOpen: false,
+    sources: [],
+    selected: null,
+    copiedMessageId: null,
+
+    scrollFeed() {
+        this.$nextTick(() => {
+            if (this.$refs.feed) this.$refs.feed.scrollTop = this.$refs.feed.scrollHeight;
+        });
+    },
+
+    openSources(messageId, evidenceId = null) {
+        this.sources = index[String(messageId)] || index[messageId] || [];
+        this.selected = evidenceId
+            ? this.sources.find((citation) => citation.evidence_id === evidenceId) || this.sources[0]
+            : this.sources[0];
+        this.sourceOpen = this.sources.length > 0;
+    },
+
+    handleEvidenceClick(event) {
+        const anchor = event.target.closest('a[href^="#evidence-"]');
+        if (!anchor) return;
+
+        const message = anchor.closest('[data-message-id]');
+        if (!message) return;
+
+        event.preventDefault();
+        this.openSources(message.dataset.messageId, anchor.hash.replace('#evidence-', ''));
+    },
+
+    closeSources() {
+        this.sourceOpen = false;
+        this.sources = [];
+        this.selected = null;
+    },
+
+    async copyAnswer(text, messageId) {
+        await navigator.clipboard.writeText(text);
+        this.copiedMessageId = messageId;
+        window.setTimeout(() => {
+            if (this.copiedMessageId === messageId) this.copiedMessageId = null;
+        }, 1600);
+    },
+});
+
 window.agentRunRealtime = (runId) => ({
     channel: null,
     destroyed: false,

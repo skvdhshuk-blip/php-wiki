@@ -7,6 +7,7 @@ use App\Entities\EvidenceBundle;
 use App\Entities\EvidenceItem;
 use App\Entities\QueryPlan;
 use App\Exceptions\AgentContractException;
+use App\Services\Source\SourceCatalog;
 use App\Services\Wiki\CitationValidator;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
@@ -16,6 +17,7 @@ class EvidenceBundleBuilder
     public function __construct(
         private readonly CitationValidator $citations,
         private readonly WikiPathGuard $paths,
+        private readonly SourceCatalog $catalog,
         private readonly WikiWorkspace $workspace,
     ) {}
 
@@ -44,14 +46,7 @@ class EvidenceBundleBuilder
                 default => [],
             };
             foreach ($candidates as $candidate) {
-                $identity = implode('|', [
-                    $candidate['tool_call_id'],
-                    $candidate['wiki_path'],
-                    $candidate['raw_path'] ?? '',
-                    $candidate['raw_sha256'] ?? '',
-                    $candidate['locator'],
-                    $candidate['quote'],
-                ]);
+                $identity = $this->evidenceIdentity($candidate);
                 if (isset($deduplicated[$identity])) {
                     continue;
                 }
@@ -195,26 +190,11 @@ class EvidenceBundleBuilder
             ];
         }
 
-        if ($candidates !== [] || $path === 'AGENTS.md' || $hasRawCitations) {
-            return $candidates;
+        if ($candidates === [] && ! $hasRawCitations && $path !== 'AGENTS.md') {
+            $warnings[] = "{$path} 没有可追溯到 Source Catalog 的引用，不能作为事实证据。";
         }
 
-        [$locator, $quote] = $this->wikiExcerpt($content);
-        if ($quote === '') {
-            return [];
-        }
-
-        return [[
-            'tool_call_id' => $invocation->callId,
-            'wiki_path' => $path,
-            'wiki_hash' => $wikiHash,
-            'raw_path' => null,
-            'raw_sha256' => null,
-            'locator' => $locator,
-            'quote' => $quote,
-            'claim_hint' => $quote,
-            'confidence' => 'low',
-        ]];
+        return $candidates;
     }
 
     /**
@@ -352,7 +332,7 @@ class EvidenceBundleBuilder
         if ($item->confidence === 'high'
             && $item->rawPath !== null
             && $this->hasHanCharacters($question) !== $this->hasHanCharacters($evidenceText)) {
-            return true;
+            return ! $this->asksForExplanation($question) || $this->containsExplanation($evidenceText);
         }
 
         $haystack = mb_strtolower($item->wikiPath.' '.$evidenceText);
@@ -369,8 +349,39 @@ class EvidenceBundleBuilder
         }
 
         $minimum = count($tokens) <= 2 ? 1 : max(2, (int) ceil(count($tokens) * 0.2));
+        if ($this->asksForChapter($question) && $this->containsChapter($evidenceText)) {
+            return true;
+        }
 
-        return $matched >= $minimum;
+        if ($matched < $minimum) {
+            return false;
+        }
+
+        return ! $this->asksForExplanation($question) || $this->containsExplanation($evidenceText);
+    }
+
+    private function asksForExplanation(string $question): bool
+    {
+        return preg_match('/为什么|为何|何以|原因是什么|why\b|reason\b/iu', $question) === 1;
+    }
+
+    private function containsExplanation(string $evidence): bool
+    {
+        return preg_match(
+            '/因为|由于|因此|所以|从而|否则|以免|意味着|导致|原因(?:是|在于)|'
+            .'\bbecause\b|\bdue\s+to\b|\btherefore\b|\bso\s+that\b|\bleads?\s+to\b/iu',
+            $evidence,
+        ) === 1;
+    }
+
+    private function asksForChapter(string $question): bool
+    {
+        return preg_match('/哪一章|第几章|哪章|which\s+chapter/iu', $question) === 1;
+    }
+
+    private function containsChapter(string $evidence): bool
+    {
+        return preg_match('/来自章节|第[一二三四五六七八九十百\d]+章|\bchapter\s+\w+/iu', $evidence) === 1;
     }
 
     private function hasHanCharacters(string $text): bool
@@ -436,7 +447,7 @@ class EvidenceBundleBuilder
         if (! preg_match('/^lines:(\d+)-(\d+)$/', $locator, $match)) {
             return '';
         }
-        $lines = file($this->paths->absolute($rawPath), FILE_IGNORE_NEW_LINES);
+        $lines = file($this->catalog->absolute($rawPath), FILE_IGNORE_NEW_LINES);
         if ($lines === false) {
             return '';
         }
@@ -446,29 +457,26 @@ class EvidenceBundleBuilder
         return trim(mb_substr(implode("\n", array_slice($lines, $start - 1, $end - $start + 1)), 0, 1600));
     }
 
-    /** @return array{string, string} */
-    private function wikiExcerpt(string $content): array
+    /**
+     * @param  array{tool_call_id: string, wiki_path: string, wiki_hash: string, raw_path: ?string, raw_sha256: ?string, locator: string, quote: string, claim_hint: string, confidence: string}  $candidate
+     */
+    private function evidenceIdentity(array $candidate): string
     {
-        $lines = preg_split('/\R/u', $content) ?: [];
-        $selected = [];
-        $first = null;
-        $last = null;
-        foreach ($lines as $index => $line) {
-            $line = trim($line);
-            if ($line === '' || $line === '---' || str_starts_with($line, '#')) {
-                continue;
-            }
-            $first ??= $index + 1;
-            $last = $index + 1;
-            $selected[] = $line;
-            if (mb_strlen(implode(' ', $selected)) >= 800) {
-                break;
-            }
+        if ($candidate['raw_path'] !== null && $candidate['raw_sha256'] !== null) {
+            return implode('|', [
+                'source',
+                $candidate['raw_path'],
+                $candidate['raw_sha256'],
+                $candidate['locator'],
+            ]);
         }
 
-        return [
-            'lines:'.($first ?? 1).'-'.($last ?? 1),
-            trim(mb_substr(implode(' ', $selected), 0, 1200)),
-        ];
+        return implode('|', [
+            'wiki',
+            $candidate['wiki_path'],
+            $candidate['wiki_hash'],
+            $candidate['locator'],
+            $candidate['quote'],
+        ]);
     }
 }

@@ -1,12 +1,15 @@
 @php($activity = $this->activity)
 
 <div
-    class="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 text-zinc-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-100"
+    class="mt-3 {{ $compact ? 'max-w-3xl rounded-2xl border border-zinc-200/80 bg-white/85 p-4 shadow-[0_8px_28px_-22px_rgba(24,24,27,0.42)]' : 'rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 shadow-sm' }} text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/85 dark:text-zinc-100"
     x-data="agentRunRealtime({{ $runId }})"
     x-destroy="destroy()"
     @if ($activity['active']) wire:poll.5s="refreshRun" @endif
     data-agent-run="{{ $runId }}"
 >
+    @if ($compact)
+        @include('components.agent-run-compact', ['activity' => $activity])
+    @else
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-2">
             <span class="inline-flex size-2.5 rounded-full {{ $activity['active'] ? 'animate-pulse bg-indigo-500' : ($activity['status'] === 'completed' ? 'bg-emerald-500' : 'bg-red-500') }}"></span>
@@ -23,7 +26,7 @@
             @if ($activity['active'] && $activity['status'] !== 'cancelling')
                 <flux:button size="xs" variant="danger" wire:click="cancel" wire:confirm="确定取消本次 Agent 运行吗？">取消</flux:button>
             @endif
-            <a href="{{ route('runs', ['run' => $runId]) }}" wire:navigate class="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300">完整运行</a>
+            <a href="{{ route('admin.runs', ['run' => $runId]) }}" wire:navigate class="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300">完整运行</a>
         </div>
     </div>
 
@@ -147,5 +150,6 @@
                 @endforeach
             </div>
         </details>
+    @endif
     @endif
 </div>

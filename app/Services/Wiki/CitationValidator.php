@@ -3,21 +3,22 @@
 namespace App\Services\Wiki;
 
 use App\Repositories\Source\SourceRepository;
+use App\Services\Source\SourceCatalog;
 use Symfony\Component\Yaml\Yaml;
 
 class CitationValidator
 {
     public function __construct(
         private readonly SourceRepository $sources,
-        private readonly WikiPathGuard $paths,
+        private readonly SourceCatalog $catalog,
     ) {}
 
     /** @return list<string> */
     public function validatePage(string $path, string $content): array
     {
-        $errors = [];
-        if (! in_array($path, ['wiki/index.md', 'wiki/log.md'], true)) {
-            $errors = array_merge($errors, $this->validateFrontmatter($content));
+        $errors = $this->validateFrontmatter($path, $content);
+        if ($path === 'AGENTS.md') {
+            return $errors;
         }
 
         preg_match_all('/\[\[source:([^|\]]+)\|sha256:([a-f0-9]{64})\|([^\]]+)\]\]/i', $content, $matches, PREG_SET_ORDER);
@@ -40,7 +41,7 @@ class CitationValidator
     public function validateSourceReference(string $path, string $sha256, string $locator): array
     {
         try {
-            $sourcePath = $this->paths->assertRawPath($path);
+            $sourcePath = $this->catalog->assertSourcePath($path);
         } catch (\InvalidArgumentException $exception) {
             return ["无效来源路径 {$path}：{$exception->getMessage()}"];
         }
@@ -57,7 +58,7 @@ class CitationValidator
             $errors[] = "来源哈希已过期：{$sourcePath}";
         }
 
-        $absolute = $this->paths->absolute($sourcePath);
+        $absolute = $this->catalog->absolute($sourcePath);
         $currentHash = is_file($absolute) ? hash_file('sha256', $absolute) : false;
         if ($currentHash === false || ! hash_equals($sha256, $currentHash)) {
             $errors[] = "来源文件已变化，引用必须重新扫描：{$sourcePath}";
@@ -88,7 +89,7 @@ class CitationValidator
     }
 
     /** @return list<string> */
-    private function validateFrontmatter(string $content): array
+    private function validateFrontmatter(string $path, string $content): array
     {
         if (! preg_match('/\A---\R(.*?)\R---\R/s', $content, $match)) {
             return ['页面缺少 YAML frontmatter。'];
@@ -105,7 +106,7 @@ class CitationValidator
         }
 
         $errors = [];
-        foreach (['id', 'title', 'type', 'status', 'created_at', 'updated_at', 'source_ids', 'confidence'] as $field) {
+        foreach (['type', 'status', 'updated'] as $field) {
             if (! array_key_exists($field, $frontmatter)) {
                 $errors[] = "frontmatter 缺少字段：{$field}";
             }
@@ -113,8 +114,31 @@ class CitationValidator
         if (isset($frontmatter['source_ids']) && ! is_array($frontmatter['source_ids'])) {
             $errors[] = 'frontmatter source_ids 必须是数组。';
         }
-        if (isset($frontmatter['type']) && ! in_array($frontmatter['type'], ['source', 'concept', 'entity', 'synthesis', 'question'], true)) {
-            $errors[] = 'frontmatter type 不在允许范围内。';
+        if (isset($frontmatter['source_ids']) && is_array($frontmatter['source_ids'])) {
+            foreach ($frontmatter['source_ids'] as $sourceId) {
+                if (! is_string($sourceId) || $this->sources->findByPath($sourceId) === null) {
+                    $errors[] = 'frontmatter source_ids 包含未登记来源。';
+                }
+            }
+        }
+        if (isset($frontmatter['type'])) {
+            $validType = $path === 'AGENTS.md'
+                ? $frontmatter['type'] === 'schema/llm-wiki'
+                : is_string($frontmatter['type']) && preg_match('/^wiki\/[a-z0-9][a-z0-9-]*$/', $frontmatter['type']) === 1;
+            if (! $validType) {
+                $errors[] = $path === 'AGENTS.md'
+                    ? 'AGENTS.md frontmatter type 必须使用 schema/llm-wiki。'
+                    : 'frontmatter type 必须使用 wiki/<kind>。';
+            }
+        }
+        if (isset($frontmatter['status'])
+            && ! in_array($frontmatter['status'], ['active', 'draft', 'permanent', 'archived'], true)) {
+            $errors[] = 'frontmatter status 不在允许范围内。';
+        }
+        if (isset($frontmatter['updated'])
+            && ! (is_int($frontmatter['updated']) && $frontmatter['updated'] > 0)
+            && (! is_string($frontmatter['updated']) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $frontmatter['updated']) !== 1)) {
+            $errors[] = 'frontmatter updated 必须使用 YYYY-MM-DD。';
         }
         if (isset($frontmatter['confidence']) && ! in_array($frontmatter['confidence'], ['high', 'medium', 'low'], true)) {
             $errors[] = 'frontmatter confidence 不在允许范围内。';

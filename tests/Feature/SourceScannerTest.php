@@ -60,4 +60,22 @@ class SourceScannerTest extends TestCase
         $this->assertSame(1, $result['discovered']);
         $this->assertSame(1, WikiSource::query()->count());
     }
+
+    public function test_scan_uses_all_configured_source_roots_without_copying_files(): void
+    {
+        mkdir($this->wikiRoot.'/GetNote导入');
+        mkdir($this->wikiRoot.'/工作');
+        file_put_contents($this->wikiRoot.'/GetNote导入/note.md', '# imported note');
+        file_put_contents($this->wikiRoot.'/工作/decision.txt', 'source decision');
+        config(['phpwiki.source_roots' => ['raw', 'GetNote导入', '工作']]);
+
+        $result = app(SourceScanner::class)->scan();
+
+        $this->assertSame(2, $result['discovered']);
+        $this->assertSame(
+            ['GetNote导入/note.md', '工作/decision.txt'],
+            WikiSource::query()->orderBy('path')->pluck('path')->all(),
+        );
+        $this->assertFileDoesNotExist($this->wikiRoot.'/raw/GetNote导入/note.md');
+    }
 }

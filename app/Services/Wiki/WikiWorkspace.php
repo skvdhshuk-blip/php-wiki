@@ -37,8 +37,8 @@ class WikiWorkspace
         $created = [];
         $templates = [
             'AGENTS.md' => $this->schemaTemplate(),
-            'wiki/index.md' => "# PHP Wiki\n\n这是知识库的内容索引。Agent 会在提案获批时维护这里。\n",
-            'wiki/log.md' => "# Wiki 变更日志\n\n此文件只追加获批提案的记录。\n",
+            'wiki/index.md' => "---\ntype: wiki/index\nstatus: active\nupdated: ".now()->toDateString()."\n---\n\n# PHP Wiki\n\n这是知识库的内容索引。Agent 会在提案获批时维护这里。\n",
+            'wiki/log.md' => "---\ntype: wiki/log\nstatus: active\nupdated: ".now()->toDateString()."\n---\n\n# Wiki 变更日志\n\n此文件只追加获批提案的记录。\n",
         ];
 
         foreach ($templates as $path => $content) {
@@ -166,38 +166,41 @@ class WikiWorkspace
 
     private function schemaTemplate(): string
     {
-        return <<<'MARKDOWN'
+        $template = <<<'MARKDOWN'
+---
+type: schema/llm-wiki
+status: active
+updated: 2026-08-26
+---
+
 # PHP Wiki Agent Contract
 
 ## 权威分层
 
-- `raw/`：用户拥有的原始资料，任何 Agent 和应用流程都不得修改。
+- Source Catalog：配置允许的本地来源目录。来源使用相对 Wiki 根目录的稳定路径，任何 Agent 和应用流程都不得修改。
 - `wiki/`：Agent 维护、用户审批的 Markdown 知识库。
 - `AGENTS.md`：Wiki Schema 与工作流规则；修改同样必须经过提案审批。
 
 ## 页面 Schema
 
-除 `wiki/index.md` 与 `wiki/log.md` 外，每个页面必须包含 YAML frontmatter：
+每个 Wiki 页面必须包含 YAML frontmatter：
 
 ```yaml
 ---
-id: stable-kebab-id
-title: 页面标题
-type: source|concept|entity|synthesis|question
-status: active|draft|archived
-created_at: 2026-08-26
-updated_at: 2026-08-26
-source_ids: [raw/example.pdf]
+type: wiki/topic
+status: active
+updated: 2026-08-26
+source_ids: [GetNote导入/example.md]
 confidence: high|medium|low
 ---
 ```
 
 ## 引用
 
-- 文本：`[[source:raw/note.md|sha256:<64 hex>|lines:10-20]]`
+- 文本：`[[source:GetNote导入/note.md|sha256:<64 hex>|lines:10-20]]`
 - PDF：`[[source:raw/book.pdf|sha256:<64 hex>|page:12]]`
 - 图片：`[[source:raw/image.png|sha256:<64 hex>|region:左上角图表]]`
-- Wiki 页面：`[[page:wiki/concepts/example.md]]`
+- Wiki 页面：`[[wiki/concepts/example]]`
 
 引用必须绑定当前来源哈希；无法确认的事实要标注为推断，不得伪造来源。
 
@@ -206,6 +209,21 @@ confidence: high|medium|low
 - Agent 只能提交完整页面内容作为提案，不能直接落盘。
 - 禁止硬删除；废弃页面移动到 `wiki/archive/`。
 - `wiki/log.md` 只追加，`wiki/index.md` 面向主题组织，不按时间堆砌。
+MARKDOWN;
+
+        return $template."\n\n".$this->schemaContractSection()."\n";
+    }
+
+    public function schemaContractSection(): string
+    {
+        return <<<'MARKDOWN'
+## 8. PHP Wiki 应用执行契约
+
+- Source Catalog 由应用配置明确允许的本地目录组成；这些目录及其中的原始资料只读，不得由 Agent、审批应用或 Git 提交流程修改。
+- `[[GetNote导入/...]]` 等旧式 Obsidian 来源链接只用于导航与发现，不构成事实引用。正式引用必须使用 `[[source:路径|sha256:哈希|lines:范围]]`、`page:` 或 `region:` 定位。
+- Ingest 必须把待处理来源修订编译成可审阅的 Wiki ChangeSet；Agent 只能调用 `ProposeWikiPage` 记录完整页面提案，用户批准后应用才可原子落盘并创建仅包含受管文件的 Git commit。
+- Query 先读 `wiki/index.md`，但事实回答只能使用当前哈希有效的正式 source 引用或成功的 Source Catalog 原文摘录；只有旧链接、无来源 Wiki 文本或过期引用时必须报告证据缺口。
+- `wiki/index.md`、`wiki/log.md` 与 Wiki 页面链接使用原生 Obsidian `[[wiki/path]]` 语法；废弃页面只归档到 `wiki/archive/`，不硬删除。
 MARKDOWN;
     }
 }

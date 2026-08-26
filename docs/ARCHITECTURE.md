@@ -4,7 +4,7 @@
 
 | 能力 | 唯一权威 |
 |---|---|
-| 原始资料 | 外部工作区 `raw/` |
+| 原始资料 | `SourceCatalog` 配置允许的工作区只读目录 |
 | 已批准知识 | 外部工作区 `wiki/**/*.md` 与 `AGENTS.md` |
 | 变更历史 | 工作区 Git + `wiki/log.md` |
 | 待审批内容 | SQLite `wiki_proposals` / `wiki_page_changes` |
@@ -14,11 +14,24 @@
 
 Livewire 组件只接收输入、调用 Application Service、展示状态。业务编排位于 `app/Services`，Eloquent 查询集中在 `app/Repositories`，跨层结构使用 `app/Entities`，状态值位于 `app/Constants`。
 
+## Karpathy LLM Wiki 对照
+
+| 原始模式 | PHP Wiki 可执行契约 |
+|---|---|
+| Raw sources 不可变且是 source of truth | `SourceCatalog` 只接收显式允许的本地目录；扫描、Agent、审批和 Git 路径均不能写来源文件 |
+| Wiki 是持续积累的 Markdown 编译层 | Ingest 把新来源合并进既有页面，以原生 Obsidian 链接维护关系，不把每份资料变成孤立摘要 |
+| Schema 约束 ingest、query、maintenance | `AGENTS.md` 保存领域规则；`CitationValidator`、`ChangeSetValidator` 和工具白名单把关键规则变成失败关闭的代码契约 |
+| Ingest 更新页面、index 和 append-only log | Agent 生成 `WikiChangeSet`，用户批准后原子落盘，并以单独 Git commit 更新受管页面、索引和日志 |
+| Query 先读 index，再深入页面并带引用回答 | `QueryPlan → EvidenceBundle → AnswerVerifier`；旧链接和无来源 Wiki 文本不能直接支撑事实 |
+| Lint 维护矛盾、过期、孤儿、缺口和交叉链接 | 确定性 Lint 检查结构与引用，语义 Lint 只读审计矛盾与知识缺口 |
+
+应用增加的人工审批、哈希引用和确定性验证属于安全收紧，不改变原始三层模式。
+
 ## 视觉链路
 
 Hao Code 的图片输入来自 `RunOptions::images`，因此 `VisionAnalystAgent` 由应用直接调用，图片附在初始用户消息中。ToolResult 是字符串，不能把它伪装成视觉输入。视觉结果转换成带路径、哈希和页码/区域的文字证据，再交给 Mapper、Auditor 和 Orchestrator。
 
-PDF 每页分别执行文字提取和渲染；每批默认八页。图片缓存位于 Laravel storage，不进入 Wiki Git 仓库，也不会覆盖 `raw/`。
+PDF 每页分别执行文字提取和渲染；每批默认八页。图片缓存位于 Laravel storage，不进入 Wiki Git 仓库，也不会覆盖 Source Catalog 原始资料。
 
 ## 证据优先问答
 
@@ -36,7 +49,7 @@ QueryPlan
 
 - `QueryPlan` 确定 `lookup` 或 `research`、子问题、查询改写、固定工具预算和独立问题中的实质歧义。
 - 三个知识工具只返回有身份的 JSON envelope；工具输出本身不是正式引用。
-- `EvidenceBundleBuilder` 只消费本次运行内完成且成功的工具调用，重新核对 Wiki SHA-256、raw 路径、raw SHA-256 和 locator；`EvidenceIdRegistry` 保证早期证据失效后 ID 也不会被另一条证据复用。
+- `EvidenceBundleBuilder` 只消费本次运行内完成且成功的工具调用，重新核对 Wiki SHA-256、Source Catalog 路径、来源 SHA-256 和 locator；同一路径、修订哈希和 locator 只形成一条证据，`EvidenceIdRegistry` 保证早期证据失效后 ID 也不会被另一条证据复用。
 - `RetrievalEvidencePublisher` 在每次工具完成后发布新增 EvidenceItem 和完整 coverage，下一次工具调用前 UI 已能看到进展。
 - 答案 Agent 没有工具，只接收 QueryPlan、EvidenceBundle 和应用选择的单一答案类型。JSON Schema 进入提示词，但 Parser + Verifier 才是结构权威，不能依赖兼容网关执行 enum 或 minItems。
 - 模型生成的未知引用、无证据 section、未披露冲突、没有同时引用冲突双方、过高置信度都会被拒绝；证据缺口由 Renderer 根据 EvidenceBundle 固定追加，避免把确定性披露交给模型措辞。
@@ -63,3 +76,4 @@ QueryPlan
 Agent、SdkTool、AbortController 和回调在每个 Queue Job 内重新创建。服务容器中不保存可变 Provider/Agent 运行态。模型调用不发生在 HTTP 请求内，页面通过持久化事件轮询运行进度。
 
 Queue Worker 固定并发 1；应用层还会复用同一来源已有的 queued/running run，审批路径另有工作区文件锁。
+部署新代码后必须重启 Queue Worker 和 Octane Worker，确保长驻进程使用同一不可变运行时快照。

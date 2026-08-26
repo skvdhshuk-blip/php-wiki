@@ -10,6 +10,7 @@ class WikiLintService
         private readonly WikiWorkspace $workspace,
         private readonly WikiPathGuard $paths,
         private readonly CitationValidator $citations,
+        private readonly WikiLinkParser $links,
     ) {}
 
     /** @return list<WikiLintIssue> */
@@ -25,8 +26,7 @@ class WikiLintService
                 $issues[] = new WikiLintIssue('error', 'citation_or_schema', $path, $message);
             }
 
-            preg_match_all('/\[\[page:([^\]]+)\]\]/', $content, $matches);
-            foreach ($matches[1] as $target) {
+            foreach ($this->links->targets($content) as $target) {
                 try {
                     $target = $this->paths->assertManagedPath($target);
                 } catch (\InvalidArgumentException $exception) {
@@ -41,7 +41,7 @@ class WikiLintService
 
             if (! in_array($path, ['wiki/index.md', 'wiki/log.md'], true)
                 && ! str_starts_with($path, 'wiki/archive/')
-                && ! str_contains($index, "[[page:{$path}]]")) {
+                && ! $this->links->contains($index, $path)) {
                 $issues[] = new WikiLintIssue('warning', 'orphan_page', $path, '页面未被 wiki/index.md 收录。');
             }
         }

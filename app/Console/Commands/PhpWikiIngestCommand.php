@@ -9,16 +9,16 @@ use Illuminate\Console\Command;
 
 class PhpWikiIngestCommand extends Command
 {
-    protected $signature = 'php-wiki:ingest {path? : raw/... source path} {--all : Queue every pending source}';
+    protected $signature = 'php-wiki:ingest {path? : Source Catalog path} {--all : Queue every pending source}';
 
-    protected $description = 'Queue one or all registered sources for Agent ingestion';
+    protected $description = 'Queue one or all registered Source Catalog entries for Agent ingestion';
 
     public function handle(SourceScanner $scanner, AgentRunDispatchService $dispatch, SourceRepository $sources): int
     {
         $scanner->scan();
         $path = $this->argument('path');
         if (! $this->option('all') && ! is_string($path)) {
-            $this->error('请提供 raw/... 路径或使用 --all。');
+            $this->error('请提供 Source Catalog 路径或使用 --all。');
 
             return self::INVALID;
         }

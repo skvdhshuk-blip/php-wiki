@@ -107,6 +107,17 @@ class ProposalRepository
         ]);
     }
 
+    public function invalidateDraft(WikiProposal $proposal, string $reason): void
+    {
+        WikiProposal::query()
+            ->whereKey($proposal->id)
+            ->where('status', ProposalStatus::Draft->value)
+            ->update([
+                'status' => ProposalStatus::Invalid->value,
+                'validation_errors' => [$reason],
+            ]);
+    }
+
     /** @param list<string> $errors */
     public function markValidationFailure(WikiProposal $proposal, array $errors, bool $stale): void
     {
