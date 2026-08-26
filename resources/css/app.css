@@ -1,0 +1,106 @@
+@import 'tailwindcss';
+@import '../../vendor/livewire/flux/dist/flux.css';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../vendor/livewire/flux-pro/stubs/**/*.blade.php';
+@source '../../vendor/livewire/flux/stubs/**/*.blade.php';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+    --color-zinc-50: #fafafa;
+    --color-zinc-100: #f5f5f5;
+    --color-zinc-200: #e5e5e5;
+    --color-zinc-300: #d4d4d4;
+    --color-zinc-400: #a3a3a3;
+    --color-zinc-500: #737373;
+    --color-zinc-600: #525252;
+    --color-zinc-700: #404040;
+    --color-zinc-800: #262626;
+    --color-zinc-900: #171717;
+    --color-zinc-950: #0a0a0a;
+
+    --color-accent: var(--color-neutral-800);
+    --color-accent-content: var(--color-neutral-800);
+    --color-accent-foreground: var(--color-white);
+}
+
+.wiki-markdown {
+    color: var(--color-zinc-700);
+    line-height: 1.8;
+}
+
+.dark .wiki-markdown {
+    color: var(--color-zinc-200);
+}
+
+.wiki-markdown h1,
+.wiki-markdown h2,
+.wiki-markdown h3 {
+    margin-top: 1.5em;
+    margin-bottom: .6em;
+    color: var(--color-zinc-950);
+    font-weight: 700;
+    letter-spacing: -.02em;
+}
+
+.dark .wiki-markdown h1,
+.dark .wiki-markdown h2,
+.dark .wiki-markdown h3 {
+    color: white;
+}
+
+.wiki-markdown h1 { font-size: 2rem; }
+.wiki-markdown h2 { font-size: 1.4rem; }
+.wiki-markdown h3 { font-size: 1.15rem; }
+.wiki-markdown p,
+.wiki-markdown ul,
+.wiki-markdown ol,
+.wiki-markdown pre { margin: 1em 0; }
+.wiki-markdown ul { list-style: disc; padding-left: 1.5rem; }
+.wiki-markdown ol { list-style: decimal; padding-left: 1.5rem; }
+.wiki-markdown a { color: var(--color-indigo-600); text-decoration: underline; }
+.wiki-markdown code { border-radius: .35rem; background: var(--color-zinc-100); padding: .15rem .35rem; font-size: .875em; }
+.dark .wiki-markdown code { background: var(--color-zinc-800); }
+.wiki-markdown pre { overflow: auto; border-radius: .75rem; background: var(--color-zinc-950); padding: 1rem; color: var(--color-zinc-100); }
+.wiki-markdown pre code { background: transparent; padding: 0; }
+
+@layer theme {
+    .dark {
+        --color-accent: var(--color-white);
+        --color-accent-content: var(--color-white);
+        --color-accent-foreground: var(--color-neutral-800);
+    }
+}
+
+@layer base {
+
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentColor);
+    }
+}
+
+[data-flux-field]:not(ui-radio, ui-checkbox) {
+    @apply grid gap-2;
+}
+
+[data-flux-label] {
+    @apply  !mb-0 !leading-tight;
+}
+
+input:focus[data-flux-control],
+textarea:focus[data-flux-control],
+select:focus[data-flux-control] {
+    @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
+}
+
+/* \[:where(&)\]:size-4 {
+    @apply size-4;
+} */

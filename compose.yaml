@@ -1,0 +1,103 @@
+name: php-wiki
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+  image: php-wiki:local
+  restart: unless-stopped
+  environment: &environment
+    APP_NAME: PHP Wiki
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_URL: http://localhost:${PHP_WIKI_PORT:-8000}
+    APP_LOCALE: zh_CN
+    APP_FALLBACK_LOCALE: en
+    APP_TIMEZONE: Asia/Shanghai
+    LOG_CHANNEL: stderr
+    DB_CONNECTION: sqlite
+    DB_DATABASE: /data/database.sqlite
+    SESSION_DRIVER: database
+    CACHE_STORE: database
+    QUEUE_CONNECTION: database
+    BROADCAST_CONNECTION: reverb
+    OCTANE_SERVER: frankenphp
+    REVERB_APP_ID: php-wiki
+    REVERB_APP_KEY: php-wiki-local
+    REVERB_HOST: reverb
+    REVERB_PORT: 8080
+    REVERB_SCHEME: http
+    REVERB_SERVER_HOST: 0.0.0.0
+    REVERB_SERVER_PORT: 8080
+    REVERB_SCALING_ENABLED: "false"
+    PHP_WIKI_REVERB_PORT: ${PHP_WIKI_REVERB_PORT:-8080}
+    PHP_WIKI_ROOT: /wiki
+    PHP_WIKI_ALLOW_REMOTE_MODEL: ${PHP_WIKI_ALLOW_REMOTE_MODEL:-false}
+    PHP_WIKI_PROVIDER: ${PHP_WIKI_PROVIDER:-anthropic}
+    PHP_WIKI_BASE_URL: ${PHP_WIKI_BASE_URL:-https://api.deepseek.com/anthropic}
+    PHP_WIKI_MODEL: ${PHP_WIKI_MODEL:-deepseek-v4-flash-vision-exp}
+    PHP_WIKI_TEXT_FALLBACK_MODEL: ${PHP_WIKI_TEXT_FALLBACK_MODEL:-deepseek-v4-flash}
+    PHP_WIKI_API_KEY: ${PHP_WIKI_API_KEY:-}
+  volumes:
+    - app-data:/data
+    - app-storage:/app/storage
+    - ${PHP_WIKI_HOST_ROOT:-./wiki-data}:/wiki
+
+services:
+  app:
+    <<: *app
+    ports:
+      - "${PHP_WIKI_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/up"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+
+  queue:
+    <<: *app
+    command: ["php", "artisan", "queue:work", "database", "--queue=default", "--sleep=1", "--tries=1", "--timeout=1200", "--max-jobs=100"]
+    depends_on:
+      app:
+        condition: service_healthy
+
+  scheduler:
+    <<: *app
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      app:
+        condition: service_healthy
+
+  reverb:
+    <<: *app
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    ports:
+      - "127.0.0.1:${PHP_WIKI_REVERB_PORT:-8080}:8080"
+    depends_on:
+      app:
+        condition: service_healthy
+
+  test:
+    <<: *app
+    profiles: ["test"]
+    image: php-wiki:test
+    restart: "no"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    environment:
+      <<: *environment
+      APP_ENV: testing
+      DB_DATABASE: ":memory:"
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      BROADCAST_CONNECTION: "null"
+    volumes: []
+
+volumes:
+  app-data:
+  app-storage:
