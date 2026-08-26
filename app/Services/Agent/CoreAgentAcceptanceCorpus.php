@@ -73,7 +73,9 @@ class CoreAgentAcceptanceCorpus
         }
         $visual = count(array_filter(
             $entries,
-            static fn (array $entry): bool => ($entry['expected']['visual'] ?? false) === true,
+            static fn (array $entry): bool => ($entry['expected']['visual'] ?? false) === true
+                && ($entry['expected']['answer_type'] ?? null) === 'answer'
+                && in_array($entry['expected']['evidence_kind'] ?? null, ['image_region', 'page'], true),
         ));
         if ($visual < 5) {
             throw new \RuntimeException('Acceptance corpus must contain at least five visual-evidence questions.');

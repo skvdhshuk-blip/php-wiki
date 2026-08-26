@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Entities\AnswerDraft;
 use App\Entities\AnswerSection;
 use App\Entities\EvidenceBundle;
+use App\Entities\QueryPlan;
 use App\Exceptions\AgentContractException;
 use App\Models\AgentRun;
 use App\Repositories\Agent\AgentRunRepository;
@@ -47,11 +48,19 @@ class QueryWikiWorkflow
             'max_searches' => $plan->maxSearches,
             'max_reads' => $plan->maxReads,
         ]);
+        $evidencePublisher = new RetrievalEvidencePublisher(
+            $plan,
+            $run,
+            $budget,
+            $this->evidenceBuilder,
+            $this->runs,
+        );
         $retrieval = $this->execution->invoke(
             $run,
             $this->agents->queryAgent($budget),
             $this->retrievalPrompt((string) $run->prompt, $plan->toArray()),
             emitText: false,
+            onToolInvocations: $evidencePublisher,
         );
 
         $toolEvents = $this->toolContract->assertLifecycleComplete($run);
@@ -66,18 +75,14 @@ class QueryWikiWorkflow
             );
         }
 
-        $evidence = $this->evidenceBuilder->build($plan, $retrieval->toolInvocations);
-        foreach ($evidence->items as $item) {
-            $this->runs->event($run, 'evidence_added', $item->toArray());
+        $evidence = $evidencePublisher->latest();
+        if ($evidence === null) {
+            $evidencePublisher($retrieval->toolInvocations);
+            $evidence = $evidencePublisher->latest();
         }
-        $this->runs->event($run, 'coverage_updated', [
-            'coverage' => $evidence->coverage,
-            'gaps' => $evidence->gaps,
-            'conflicts' => $evidence->conflicts,
-            'warnings' => $evidence->warnings,
-            'evidence_count' => count($evidence->items),
-            'tool_budget' => $budget->usage(),
-        ]);
+        if (! $evidence instanceof EvidenceBundle) {
+            throw new AgentContractException('检索没有生成 EvidenceBundle。', $retrieval->result->text);
+        }
 
         $answer = $this->execution->invoke(
             $run,
@@ -93,7 +98,7 @@ class QueryWikiWorkflow
             'evidence_count' => count($evidence->items),
             'attempt' => 1,
         ]);
-        [$draft, $errors] = $this->parseAndVerify($answer->result->text, $evidence);
+        [$draft, $errors] = $this->parseAndVerify($answer->result->text, $evidence, $plan);
         if ($errors !== []) {
             $this->runs->event($run, 'verification_failed', ['errors' => $errors, 'attempt' => 1]);
             $answer = $this->execution->invoke(
@@ -115,7 +120,7 @@ class QueryWikiWorkflow
                 'evidence_count' => count($evidence->items),
                 'attempt' => 2,
             ]);
-            [$draft, $errors] = $this->parseAndVerify($answer->result->text, $evidence);
+            [$draft, $errors] = $this->parseAndVerify($answer->result->text, $evidence, $plan);
             if ($errors !== []) {
                 $this->runs->event($run, 'verification_failed', ['errors' => $errors, 'attempt' => 2]);
                 throw new AgentContractException(
@@ -198,7 +203,7 @@ class QueryWikiWorkflow
     /**
      * @return array{?AnswerDraft, list<string>}
      */
-    private function parseAndVerify(string $text, EvidenceBundle $evidence): array
+    private function parseAndVerify(string $text, EvidenceBundle $evidence, QueryPlan $plan): array
     {
         try {
             $draft = $this->answerParser->parse($text);
@@ -206,7 +211,7 @@ class QueryWikiWorkflow
             return [null, [$exception->getMessage()]];
         }
 
-        return [$draft, $this->answerVerifier->verify($draft, $evidence)];
+        return [$draft, $this->answerVerifier->verify($draft, $evidence, $plan)];
     }
 
     /** @param array<string, mixed> $value */

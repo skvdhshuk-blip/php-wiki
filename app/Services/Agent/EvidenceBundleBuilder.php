@@ -20,8 +20,12 @@ class EvidenceBundleBuilder
     ) {}
 
     /** @param list<AgentToolInvocation> $toolInvocations */
-    public function build(QueryPlan $plan, array $toolInvocations): EvidenceBundle
-    {
+    public function build(
+        QueryPlan $plan,
+        array $toolInvocations,
+        ?EvidenceIdRegistry $ids = null,
+    ): EvidenceBundle {
+        $ids ??= new EvidenceIdRegistry;
         $this->assertToolBudget($plan, $toolInvocations);
         $items = [];
         $warnings = [];
@@ -53,7 +57,7 @@ class EvidenceBundleBuilder
                 }
                 $deduplicated[$identity] = true;
                 $items[] = new EvidenceItem(
-                    evidenceId: 'E'.(count($items) + 1),
+                    evidenceId: $ids->idFor($identity),
                     toolCallId: $candidate['tool_call_id'],
                     wikiPath: $candidate['wiki_path'],
                     wikiHash: $candidate['wiki_hash'],
@@ -68,7 +72,7 @@ class EvidenceBundleBuilder
             }
         }
 
-        [$coverage, $gaps, $conflicts] = $this->coverage($plan, $items);
+        [$coverage, $gaps, $conflicts, $conflictEvidence] = $this->coverage($plan, $items);
 
         return new EvidenceBundle(
             items: $items,
@@ -76,6 +80,7 @@ class EvidenceBundleBuilder
             gaps: $gaps,
             conflicts: $conflicts,
             warnings: array_values(array_unique($warnings)),
+            conflictEvidence: $conflictEvidence,
         );
     }
 
@@ -273,13 +278,14 @@ class EvidenceBundleBuilder
 
     /**
      * @param  list<EvidenceItem>  $items
-     * @return array{array<string, 'covered'|'gap'|'conflict'>, list<string>, list<string>}
+     * @return array{array<string, 'covered'|'gap'|'conflict'>, list<string>, list<string>, array<string, list<string>>}
      */
     private function coverage(QueryPlan $plan, array $items): array
     {
         $coverage = [];
         $gaps = [];
         $conflicts = [];
+        $conflictEvidence = [];
         foreach ($plan->subquestions as $index => $subquestion) {
             $key = 'Q'.($index + 1);
             $matching = array_values(array_filter(
@@ -303,12 +309,16 @@ class EvidenceBundleBuilder
             )) {
                 $coverage[$key] = 'conflict';
                 $conflicts[] = $subquestion;
+                $conflictEvidence[$key] = array_map(
+                    static fn (EvidenceItem $item): string => $item->evidenceId,
+                    $matching,
+                );
             } else {
                 $coverage[$key] = 'covered';
             }
         }
 
-        return [$coverage, $gaps, $conflicts];
+        return [$coverage, $gaps, $conflicts, $conflictEvidence];
     }
 
     /** @param list<EvidenceItem> $items */

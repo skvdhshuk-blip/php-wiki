@@ -27,7 +27,7 @@ class AgentToolTrace
         return $callId;
     }
 
-    public function completed(string $name, ToolResult $result): string
+    public function completed(string $name, ToolResult $result): AgentToolInvocation
     {
         $pending = isset($this->pending[$name]) ? array_shift($this->pending[$name]) : null;
         if (($this->pending[$name] ?? []) === []) {
@@ -38,15 +38,16 @@ class AgentToolTrace
             'input' => [],
         ];
 
-        $this->completed[] = new AgentToolInvocation(
+        $invocation = new AgentToolInvocation(
             callId: $pending['call_id'],
             name: $name,
             input: $pending['input'],
             output: $result->output,
             isError: $result->isError,
         );
+        $this->completed[] = $invocation;
 
-        return $pending['call_id'];
+        return $invocation;
     }
 
     /** @return list<AgentToolInvocation> */

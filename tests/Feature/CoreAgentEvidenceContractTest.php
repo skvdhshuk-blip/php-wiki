@@ -11,6 +11,7 @@ use App\Repositories\Source\SourceRepository;
 use App\Services\Agent\AnswerRenderer;
 use App\Services\Agent\AnswerVerifier;
 use App\Services\Agent\EvidenceBundleBuilder;
+use App\Services\Agent\EvidenceIdRegistry;
 use App\Services\Agent\QueryPlanningService;
 use App\Services\Agent\QueryToolBudget;
 use App\Services\Agent\Tools\ReadSourceExcerptTool;
@@ -143,6 +144,42 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertStringContainsString('格式不完整', implode(' ', $bundle->warnings));
     }
 
+    public function test_evidence_ids_are_not_reused_when_an_earlier_item_becomes_invalid(): void
+    {
+        $firstPage = "# First\n\n共同事实一。\n";
+        $secondPage = "# Second\n\n共同事实二。\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/first.md', $firstPage);
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/second.md', $secondPage);
+        $invocations = [
+            new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/first.md'],
+                $this->pageEnvelope('wiki/concepts/first.md', $firstPage),
+                false,
+            ),
+            new AgentToolInvocation(
+                'run:tool:2',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/second.md'],
+                $this->pageEnvelope('wiki/concepts/second.md', $secondPage),
+                false,
+            ),
+        ];
+        $plan = app(QueryPlanningService::class)->plan('共同事实是什么？');
+        $ids = new EvidenceIdRegistry;
+        $builder = app(EvidenceBundleBuilder::class);
+
+        $first = $builder->build($plan, $invocations, $ids);
+        $this->assertSame(['E1', 'E2'], $first->evidenceIds());
+
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/first.md', "# Changed\n\n已变化。\n");
+        $second = $builder->build($plan, $invocations, $ids);
+
+        $this->assertSame(['E2'], $second->evidenceIds());
+        $this->assertStringContainsString('发生变化', implode(' ', $second->warnings));
+    }
+
     public function test_answer_verifier_rejects_unknown_evidence_and_renderer_owns_citation_syntax(): void
     {
         $page = "# Index\n\n职场边界。\n";
@@ -160,12 +197,12 @@ class CoreAgentEvidenceContractTest extends TestCase
         $invalid = new AnswerDraft('answer', [
             new AnswerSection('结论', '模型生成 [[source:wiki/75]]', ['E99'], false, 'high'),
         ]);
-        $this->assertNotEmpty(app(AnswerVerifier::class)->verify($invalid, $bundle));
+        $this->assertNotEmpty(app(AnswerVerifier::class)->verify($invalid, $bundle, $plan));
 
         $valid = new AnswerDraft('answer', [
             new AnswerSection('结论', '职场边界需要被明确。', ['E1'], false, 'low'),
         ]);
-        $this->assertSame([], app(AnswerVerifier::class)->verify($valid, $bundle));
+        $this->assertSame([], app(AnswerVerifier::class)->verify($valid, $bundle, $plan));
         $rendered = app(AnswerRenderer::class)->render($valid, $bundle);
         $this->assertStringContainsString('[^E1]', $rendered);
         $this->assertStringNotContainsString('[[source:wiki/75]]', $rendered);
@@ -264,6 +301,19 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertCount(2, $bundle->items);
         $this->assertContains('conflict', $bundle->coverage);
         $this->assertNotEmpty($bundle->conflicts);
+        $this->assertSame(['E1', 'E2'], array_values($bundle->conflictEvidence)[0]);
+
+        $oneSided = new AnswerDraft('answer', [
+            new AnswerSection('冲突', '两份政策存在冲突。', ['E1'], false, 'high'),
+        ]);
+        $this->assertStringContainsString(
+            '至少两条',
+            implode(' ', app(AnswerVerifier::class)->verify($oneSided, $bundle, $plan)),
+        );
+        $twoSided = new AnswerDraft('answer', [
+            new AnswerSection('冲突', '旧政策是三天，新政策是五天，两者存在冲突。', ['E1', 'E2'], false, 'high'),
+        ]);
+        $this->assertSame([], app(AnswerVerifier::class)->verify($twoSided, $bundle, $plan));
     }
 
     private function pageEnvelope(string $path, string $content): string

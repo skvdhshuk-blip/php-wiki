@@ -25,6 +25,7 @@ class QueryPlanningService
         $subquestions = $this->subquestions($question, $mode);
         $maxSearches = $mode === QueryPlan::LOOKUP ? 2 : 4;
         $maxReads = $mode === QueryPlan::LOOKUP ? 4 : 12;
+        $ambiguityReason = $this->ambiguityReason($question);
 
         return new QueryPlan(
             mode: $mode,
@@ -39,7 +40,25 @@ class QueryPlanningService
             reason: $mode === QueryPlan::LOOKUP
                 ? '问题指向单一事实或主题，可使用快速查找。'
                 : '问题需要跨页面比较、综合或冲突分析。',
+            requiresClarification: $ambiguityReason !== null,
+            ambiguityReason: $ambiguityReason,
         );
+    }
+
+    private function ambiguityReason(string $question): ?string
+    {
+        $hasUnboundChineseReference = preg_match(
+            '/(?:^|[，。？\s])(它|那个|这个|这一个|那一个|这个数字|图里|图中的)|哪一个/u',
+            $question,
+        ) === 1;
+        $hasUnboundEnglishReference = preg_match(
+            '/^\s*(?:who\s+owns\s+it|when\s+was\s+that\s+changed)\b|\b(?:the newer one|the other one)\b|^\s*which\s+(?:version|page)\b/iu',
+            $question,
+        ) === 1;
+
+        return $hasUnboundChineseReference || $hasUnboundEnglishReference
+            ? '问题包含未绑定到具体页面、政策、对象或版本的指代。'
+            : null;
     }
 
     private function isResearch(string $question): bool

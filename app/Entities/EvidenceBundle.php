@@ -10,6 +10,7 @@ final readonly class EvidenceBundle
      * @param  list<string>  $gaps
      * @param  list<string>  $conflicts
      * @param  list<string>  $warnings
+     * @param  array<string, list<string>>  $conflictEvidence
      */
     public function __construct(
         public array $items,
@@ -17,6 +18,7 @@ final readonly class EvidenceBundle
         public array $gaps = [],
         public array $conflicts = [],
         public array $warnings = [],
+        public array $conflictEvidence = [],
     ) {}
 
     public function find(string $evidenceId): ?EvidenceItem
@@ -45,6 +47,7 @@ final readonly class EvidenceBundle
             'gaps' => $this->gaps,
             'conflicts' => $this->conflicts,
             'warnings' => $this->warnings,
+            'conflict_evidence' => $this->conflictEvidence,
         ];
     }
 }

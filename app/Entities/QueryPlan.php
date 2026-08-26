@@ -23,6 +23,8 @@ final readonly class QueryPlan
         public int $maxReads,
         public array $stopConditions,
         public string $reason,
+        public bool $requiresClarification = false,
+        public ?string $ambiguityReason = null,
     ) {
         if (! in_array($mode, [self::LOOKUP, self::RESEARCH], true)) {
             throw new \InvalidArgumentException("Unsupported query mode: {$mode}");
@@ -50,6 +52,8 @@ final readonly class QueryPlan
             'max_reads' => $this->maxReads,
             'stop_conditions' => $this->stopConditions,
             'reason' => $this->reason,
+            'requires_clarification' => $this->requiresClarification,
+            'ambiguity_reason' => $this->ambiguityReason,
         ];
     }
 }

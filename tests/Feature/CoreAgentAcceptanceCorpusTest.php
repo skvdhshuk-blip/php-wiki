@@ -25,7 +25,9 @@ class CoreAgentAcceptanceCorpusTest extends TestCase
         $this->assertContains('en', array_column($corpus, 'language'));
         $this->assertGreaterThanOrEqual(5, count(array_filter(
             $corpus,
-            static fn (array $entry): bool => ($entry['expected']['visual'] ?? false) === true,
+            static fn (array $entry): bool => ($entry['expected']['visual'] ?? false) === true
+                && ($entry['expected']['answer_type'] ?? null) === 'answer'
+                && in_array($entry['expected']['evidence_kind'] ?? null, ['image_region', 'page'], true),
         )));
     }
 
@@ -41,6 +43,18 @@ class CoreAgentAcceptanceCorpusTest extends TestCase
         }
     }
 
+    public function test_only_ambiguous_corpus_questions_are_deterministically_marked_for_clarification(): void
+    {
+        $planner = app(QueryPlanningService::class);
+        foreach (app(CoreAgentAcceptanceCorpus::class)->all() as $entry) {
+            $this->assertSame(
+                $entry['category'] === 'ambiguous',
+                $planner->plan($entry['question'])->requiresClarification,
+                $entry['id'],
+            );
+        }
+    }
+
     public function test_evaluator_fails_closed_when_cases_are_missing_or_evidence_is_invalid(): void
     {
         $corpus = app(CoreAgentAcceptanceCorpus::class)->all();
@@ -49,12 +63,16 @@ class CoreAgentAcceptanceCorpusTest extends TestCase
             'completed' => true,
             'mode' => 'lookup',
             'answer_type' => 'answer',
+            'normal_nonempty' => true,
             'evidence_count' => 1,
+            'cited_evidence_count' => 1,
+            'cited_evidence_kinds' => ['text'],
             'citations_resolvable' => false,
             'evidence_traceable' => true,
             'raw_references_valid' => true,
             'factual_sections_evidenced' => true,
             'budget_respected' => true,
+            'coverage_terminal' => true,
             'repeated_search' => false,
             'semantic_events_ordered' => true,
             'sensitive_leak' => false,
@@ -65,5 +83,67 @@ class CoreAgentAcceptanceCorpusTest extends TestCase
         $this->assertSame(1, $report['observed_cases']);
         $citations = collect($report['gates'])->firstWhere('name', 'citations_resolvable');
         $this->assertFalse($citations['passed']);
+    }
+
+    public function test_evaluator_rejects_a_visual_answer_that_only_cites_text_evidence(): void
+    {
+        $entry = collect(app(CoreAgentAcceptanceCorpus::class)->all())->firstWhere('id', 'lookup-09');
+        $this->assertIsArray($entry);
+        $observation = [
+            'id' => 'lookup-09',
+            'completed' => true,
+            'mode' => 'lookup',
+            'answer_type' => 'answer',
+            'normal_nonempty' => true,
+            'evidence_count' => 1,
+            'cited_evidence_count' => 1,
+            'cited_evidence_kinds' => ['text'],
+            'citations_resolvable' => true,
+            'evidence_traceable' => true,
+            'raw_references_valid' => true,
+            'factual_sections_evidenced' => true,
+            'budget_respected' => true,
+            'coverage_terminal' => true,
+            'repeated_search' => false,
+            'semantic_events_ordered' => true,
+            'sensitive_leak' => false,
+        ];
+
+        $report = app(CoreAgentBenchmarkEvaluator::class)->evaluate([$entry], [$observation]);
+
+        $this->assertFalse($report['passed']);
+        $this->assertFalse($report['cases'][0]['checks']['evidence_kind']);
+    }
+
+    public function test_evaluator_rejects_conflict_text_without_two_sided_conflict_evidence(): void
+    {
+        $entry = collect(app(CoreAgentAcceptanceCorpus::class)->all())->firstWhere('id', 'conflict-01');
+        $this->assertIsArray($entry);
+        $observation = [
+            'id' => 'conflict-01',
+            'completed' => true,
+            'mode' => 'research',
+            'answer_type' => 'answer',
+            'normal_nonempty' => true,
+            'evidence_count' => 2,
+            'cited_evidence_count' => 2,
+            'cited_evidence_kinds' => ['text'],
+            'citations_resolvable' => true,
+            'evidence_traceable' => true,
+            'raw_references_valid' => true,
+            'factual_sections_evidenced' => true,
+            'budget_respected' => true,
+            'coverage_terminal' => true,
+            'repeated_search' => false,
+            'conflict_disclosed' => true,
+            'conflict_evidence_cited' => false,
+            'semantic_events_ordered' => true,
+            'sensitive_leak' => false,
+        ];
+
+        $report = app(CoreAgentBenchmarkEvaluator::class)->evaluate([$entry], [$observation]);
+
+        $this->assertFalse($report['passed']);
+        $this->assertFalse($report['cases'][0]['checks']['conflict_evidence_cited']);
     }
 }

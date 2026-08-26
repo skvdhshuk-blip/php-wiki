@@ -3,6 +3,7 @@
 namespace App\Services\Agent;
 
 use App\Entities\AgentInvocationOutcome;
+use App\Entities\AgentToolInvocation;
 use App\Exceptions\AgentContractException;
 use App\Models\AgentRun;
 use App\Repositories\Agent\AgentRunRepository;
@@ -25,6 +26,7 @@ class AgentExecutionService
     /**
      * @param  list<string>  $images
      * @param  array<string, mixed>|null  $responseSchema
+     * @param  (callable(list<AgentToolInvocation>): void)|null  $onToolInvocations
      */
     public function invoke(
         AgentRun $run,
@@ -34,9 +36,18 @@ class AgentExecutionService
         bool $allowTextFallback = false,
         bool $emitText = true,
         ?array $responseSchema = null,
+        ?callable $onToolInvocations = null,
     ): AgentInvocationOutcome {
         try {
-            $attempt = $this->runOnce($run, $agent, $prompt, $images, $emitText, $responseSchema);
+            $attempt = $this->runOnce(
+                $run,
+                $agent,
+                $prompt,
+                $images,
+                $emitText,
+                $responseSchema,
+                $onToolInvocations,
+            );
             $result = $attempt->result;
             $this->runs->recordInvocation($run, $result);
             if ($this->acceptable($result)) {
@@ -72,6 +83,7 @@ class AgentExecutionService
                 [],
                 $emitText,
                 $responseSchema,
+                $onToolInvocations,
             );
             $result = $attempt->result;
             $this->runs->recordInvocation($run, $result);
@@ -88,6 +100,7 @@ class AgentExecutionService
     /**
      * @param  list<string>  $images
      * @param  array<string, mixed>|null  $responseSchema
+     * @param  (callable(list<AgentToolInvocation>): void)|null  $onToolInvocations
      */
     private function runOnce(
         AgentRun $run,
@@ -96,6 +109,7 @@ class AgentExecutionService
         array $images,
         bool $emitText,
         ?array $responseSchema,
+        ?callable $onToolInvocations,
     ): AgentInvocationOutcome {
         $abort = new AbortController;
         $events = new AgentRunEventBuffer($this->runs, $run);
@@ -127,10 +141,13 @@ class AgentExecutionService
                     $callId = $trace->started($name, $input);
                     $events->toolStarted($name, $this->safeToolInput($input), $callId);
                 },
-                onToolComplete: function (string $name, ToolResult $result) use ($events, $trace, $checkCancellation): void {
+                onToolComplete: function (string $name, ToolResult $result) use ($events, $trace, $checkCancellation, $onToolInvocations): void {
                     $checkCancellation();
-                    $callId = $trace->completed($name, $result);
-                    $events->toolCompleted($name, $result, $this->safeOutputPreview($result->output), $callId);
+                    $invocation = $trace->completed($name, $result);
+                    $events->toolCompleted($name, $result, $this->safeOutputPreview($result->output), $invocation->callId);
+                    if ($onToolInvocations !== null) {
+                        $onToolInvocations($trace->completedInvocations());
+                    }
                 },
                 onTurnStart: function (int $turn) use ($events, $checkCancellation): void {
                     $checkCancellation();

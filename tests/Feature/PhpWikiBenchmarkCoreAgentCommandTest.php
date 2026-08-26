@@ -39,17 +39,15 @@ class PhpWikiBenchmarkCoreAgentCommandTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_live_smoke_command_persists_a_machine_readable_report_from_real_tool_envelopes(): void
+    public function test_live_smoke_command_uses_disposable_fixture_and_persists_a_machine_readable_report(): void
     {
-        app(WikiWorkspace::class)->atomicWrite(
-            'wiki/index.md',
-            "# Index\n\n远程办公申请需要提前三天提交。\n",
-        );
+        $originalIndex = app(WikiWorkspace::class)->read('wiki/index.md');
         $this->app->instance(AgentRunner::class, new BenchmarkAgentRunner);
 
         $this->artisan('php-wiki:benchmark-core-agent', [
             '--live' => true,
             '--limit' => '1',
+            '--workspace' => 'fixture',
             '--output' => $this->reportPath,
         ])->assertSuccessful();
 
@@ -58,7 +56,13 @@ class PhpWikiBenchmarkCoreAgentCommandTest extends TestCase
         $this->assertSame('smoke', $report['scope']);
         $this->assertSame(1, $report['corpus_size']);
         $this->assertSame(1, $report['observed_cases']);
+        $this->assertSame('fixture', $report['workspace']);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $report['fixture']['fixture_sha256']);
+        $this->assertSame(9, $report['fixture']['raw_files']);
         $this->assertTrue(collect($report['gates'])->every('passed'));
+        $this->assertSame($originalIndex, app(WikiWorkspace::class)->read('wiki/index.md'));
+        $this->assertDatabaseCount('wiki_sources', 0);
+        $this->assertDatabaseCount('agent_runs', 0);
     }
 }
 
@@ -71,7 +75,7 @@ class BenchmarkAgentRunner implements AgentRunner
         if (++$this->invocation === 1) {
             $tool = collect($agent->tools)->first(fn ($tool): bool => $tool->name() === 'ReadWikiPage')
                 ?? throw new \RuntimeException('ReadWikiPage tool not registered.');
-            $input = ['path' => 'wiki/index.md'];
+            $input = ['path' => 'wiki/concepts/work-arrangements.md'];
             ($options->onToolStart)('ReadWikiPage', $input);
             ($options->onToolComplete)('ReadWikiPage', ToolResult::success($tool->handle($input)));
 
@@ -82,10 +86,10 @@ class BenchmarkAgentRunner implements AgentRunner
             'type' => 'answer',
             'sections' => [[
                 'heading' => '申请提前期',
-                'content' => '远程办公申请需要提前三天提交。',
-                'evidence_ids' => ['E1'],
+                'content' => '当前远程办公申请需要提前三天提交；旧规则是五天，两者存在冲突。',
+                'evidence_ids' => ['E1', 'E4'],
                 'inference' => false,
-                'confidence' => 'low',
+                'confidence' => 'high',
             ]],
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), [], 0, turnsUsed: 1);
     }

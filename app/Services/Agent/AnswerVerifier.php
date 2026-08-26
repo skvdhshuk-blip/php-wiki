@@ -4,17 +4,22 @@ namespace App\Services\Agent;
 
 use App\Entities\AnswerDraft;
 use App\Entities\EvidenceBundle;
+use App\Entities\QueryPlan;
 
 class AnswerVerifier
 {
     /** @return list<string> */
-    public function verify(AnswerDraft $draft, EvidenceBundle $evidence): array
+    public function verify(AnswerDraft $draft, EvidenceBundle $evidence, QueryPlan $plan): array
     {
         $errors = [];
         foreach ($evidence->items as $item) {
             if ($item->stale) {
                 $errors[] = "Evidence {$item->evidenceId} 已过期。";
             }
+        }
+
+        if ($plan->requiresClarification && $draft->type !== 'clarification') {
+            $errors[] = 'QueryPlan 标记了实质歧义，只能返回 clarification。';
         }
 
         if ($draft->type === 'clarification') {
@@ -83,11 +88,20 @@ class AnswerVerifier
         }
 
         $content = implode(' ', array_map(static fn ($section): string => $section->content, $draft->sections));
+        $citedIds = array_values(array_unique(array_merge(...array_map(
+            static fn ($section): array => $section->evidenceIds,
+            $draft->sections,
+        ))));
         if ($evidence->gaps !== [] && preg_match('/证据不足|缺口|无法确认|未知|未找到/u', $content) !== 1) {
             $errors[] = '答案没有披露 EvidenceBundle 中的证据缺口。';
         }
         if ($evidence->conflicts !== [] && preg_match('/冲突|矛盾|不一致|相反/u', $content) !== 1) {
             $errors[] = '答案没有披露 EvidenceBundle 中的冲突证据。';
+        }
+        foreach ($evidence->conflictEvidence as $subquestion => $evidenceIds) {
+            if (count(array_intersect($evidenceIds, $citedIds)) < 2) {
+                $errors[] = "冲突子问题 {$subquestion} 没有同时引用至少两条相互冲突的证据。";
+            }
         }
 
         return array_values(array_unique($errors));

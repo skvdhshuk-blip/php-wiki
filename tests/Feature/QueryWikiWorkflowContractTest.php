@@ -116,6 +116,7 @@ class QueryWikiWorkflowContractTest extends TestCase
             'retrieval_started',
             'evidence_added',
             'coverage_updated',
+            'coverage_updated',
             'verification_started',
             'answer_completed',
         ], $run->events()
@@ -131,6 +132,9 @@ class QueryWikiWorkflowContractTest extends TestCase
             ->orderBy('sequence')
             ->pluck('type')
             ->all());
+        $firstCoverage = $run->events()->where('type', 'coverage_updated')->orderBy('sequence')->firstOrFail();
+        $secondToolStarted = $run->events()->where('type', 'tool_started')->orderBy('sequence')->skip(1)->firstOrFail();
+        $this->assertLessThan($secondToolStarted->sequence, $firstCoverage->sequence);
         $this->assertTrue($run->events()->where('type', 'tool_completed')->get()->contains(
             fn ($event): bool => ($event->payloadData()['is_error'] ?? false) === true,
         ));
@@ -179,6 +183,48 @@ class QueryWikiWorkflowContractTest extends TestCase
         $this->assertSame(AgentRunStatus::Completed->value, $run->status);
         $message = $run->thread->messages()->where('role', 'assistant')->firstOrFail();
         $this->assertStringContainsString('当前知识库证据不足', $message->content);
+        $this->assertSame([], $message->citations);
+    }
+
+    public function test_ambiguous_question_is_repaired_to_clarification_before_persistence(): void
+    {
+        $invocation = 0;
+        $runner = new ScriptedAgentRunner(function (RunOptions $options) use (&$invocation): QueryResult {
+            if (++$invocation === 1) {
+                ($options->onToolStart)('SearchWiki', ['query' => '开始']);
+                ($options->onToolComplete)('SearchWiki', ToolResult::success('[]'));
+
+                return new QueryResult('没有检索到明确对象。', [], 0, turnsUsed: 1);
+            }
+            if ($invocation === 2) {
+                return new QueryResult(json_encode([
+                    'type' => 'insufficient_evidence',
+                    'sections' => [],
+                    'insufficient_reason' => '没有找到开始时间。',
+                ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), [], 0, turnsUsed: 1);
+            }
+
+            return new QueryResult(json_encode([
+                'type' => 'clarification',
+                'sections' => [],
+                'clarification_question' => '你指的是哪项政策、项目或时间表？',
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), [], 0, turnsUsed: 1);
+        });
+        $this->app->instance(AgentRunner::class, $runner);
+        $run = $this->queuedRun('它什么时候开始？');
+        app(AgentRunRepository::class)->start($run);
+
+        app(QueryWikiWorkflow::class)->execute($run);
+
+        $run->refresh();
+        $this->assertSame(AgentRunStatus::Completed->value, $run->status);
+        $this->assertSame(1, $run->events()->where('type', 'verification_failed')->count());
+        $this->assertStringContainsString(
+            'QueryPlan 标记了实质歧义',
+            (string) $run->events()->where('type', 'verification_failed')->firstOrFail()->payloadData()['errors'][0],
+        );
+        $message = $run->thread->messages()->where('role', 'assistant')->firstOrFail();
+        $this->assertStringContainsString('需要先确认一个问题', $message->content);
         $this->assertSame([], $message->citations);
     }
 

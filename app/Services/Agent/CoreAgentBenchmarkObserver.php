@@ -25,8 +25,10 @@ class CoreAgentBenchmarkObserver
         $scope = $events->firstWhere('type', 'query_scoped')?->payloadData() ?? [];
         $answerEvent = $events->filter(static fn ($event): bool => $event->type === 'answer_completed')->last();
         $coverageEvent = $events->filter(static fn ($event): bool => $event->type === 'coverage_updated')->last();
+        $planEvent = $events->filter(static fn ($event): bool => $event->type === 'plan_completed')->last();
         $answer = $answerEvent?->payloadData() ?? [];
         $coverage = $coverageEvent?->payloadData() ?? [];
+        $plan = $planEvent?->payloadData() ?? [];
         $evidence = array_values($events->where('type', 'evidence_added')
             ->map(static fn ($event): array => $event->payloadData())
             ->values()
@@ -66,14 +68,20 @@ class CoreAgentBenchmarkObserver
             'mode' => is_string($scope['mode'] ?? null) ? $scope['mode'] : null,
             'answer_type' => $answerType,
             'evidence_count' => count($evidence),
+            'cited_evidence_count' => count($messageCitations),
+            'cited_evidence_kinds' => $this->citedEvidenceKinds($messageCitations),
+            'normal_nonempty' => $run->termination_reason === 'normal' && trim($response) !== '',
             'citations_resolvable' => $citationsResolvable,
             'evidence_traceable' => $this->evidenceTraceable($evidence, $successfulToolCalls),
             'raw_references_valid' => $this->rawReferencesValid($evidence),
             'factual_sections_evidenced' => $this->sectionsEvidenced($answerType, $sections, $evidenceById),
             'budget_respected' => $this->budgetRespected($toolBudget),
+            'coverage_terminal' => $this->coverageTerminal($plan, $coverage),
             'repeated_search' => (int) ($toolBudget['no_new_evidence_rounds'] ?? 3) > 2,
             'conflict_disclosed' => $entry['category'] !== 'conflict'
                 || preg_match('/冲突|矛盾|不一致|相反|conflict|contradict/iu', $response) === 1,
+            'conflict_evidence_cited' => $entry['category'] !== 'conflict'
+                || $this->conflictEvidenceCited($coverage, $sections),
             'refusal_correct' => $entry['category'] !== 'unknown' || $answerType === 'insufficient_evidence',
             'clarification_correct' => $entry['category'] !== 'ambiguous' || $answerType === 'clarification',
             'semantic_events_ordered' => $this->ordered($types, [
@@ -89,6 +97,89 @@ class CoreAgentBenchmarkObserver
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
             )),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $coverageEvent
+     * @param  list<mixed>  $sections
+     */
+    private function conflictEvidenceCited(array $coverageEvent, array $sections): bool
+    {
+        $groups = is_array($coverageEvent['conflict_evidence'] ?? null)
+            ? $coverageEvent['conflict_evidence']
+            : [];
+        if ($groups === []) {
+            return false;
+        }
+        $cited = [];
+        foreach ($sections as $section) {
+            if (! is_array($section) || ! is_array($section['evidence_ids'] ?? null)) {
+                continue;
+            }
+            foreach ($section['evidence_ids'] as $evidenceId) {
+                if (is_string($evidenceId)) {
+                    $cited[$evidenceId] = true;
+                }
+            }
+        }
+        foreach ($groups as $evidenceIds) {
+            if (! is_array($evidenceIds)) {
+                return false;
+            }
+            $matched = count(array_filter(
+                $evidenceIds,
+                static fn (mixed $evidenceId): bool => is_string($evidenceId) && isset($cited[$evidenceId]),
+            ));
+            if ($matched < 2) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $plan
+     * @param  array<string, mixed>  $coverageEvent
+     */
+    private function coverageTerminal(array $plan, array $coverageEvent): bool
+    {
+        $subquestions = is_array($plan['subquestions'] ?? null) ? $plan['subquestions'] : [];
+        $coverage = is_array($coverageEvent['coverage'] ?? null) ? $coverageEvent['coverage'] : [];
+        if ($subquestions === [] || count($coverage) !== count($subquestions)) {
+            return false;
+        }
+
+        foreach (array_values($coverage) as $status) {
+            if (! in_array($status, ['covered', 'gap', 'conflict'], true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  list<mixed>  $citations
+     * @return list<'image_region'|'page'|'text'|'wiki_statement'>
+     */
+    private function citedEvidenceKinds(array $citations): array
+    {
+        $kinds = [];
+        foreach ($citations as $citation) {
+            if (! is_array($citation) || ! is_string($citation['locator'] ?? null)) {
+                continue;
+            }
+            $kind = match (true) {
+                str_starts_with($citation['locator'], 'region:') => 'image_region',
+                str_starts_with($citation['locator'], 'page:') => 'page',
+                is_string($citation['raw_path'] ?? null) => 'text',
+                default => 'wiki_statement',
+            };
+            $kinds[$kind] = true;
+        }
+
+        return array_keys($kinds);
     }
 
     /**

@@ -38,7 +38,10 @@ class CoreAgentBenchmarkObserverTest extends TestCase
         $chats->addUserMessage($thread, (string) $run->prompt, $run);
         $runs->start($run);
         $runs->event($run, 'query_scoped', ['mode' => 'lookup']);
-        $runs->event($run, 'plan_completed', ['mode' => 'lookup']);
+        $runs->event($run, 'plan_completed', [
+            'mode' => 'lookup',
+            'subquestions' => ['远程办公申请需要提前多少天提交？'],
+        ]);
         $runs->event($run, 'retrieval_started', ['max_searches' => 2, 'max_reads' => 4]);
         $runs->event($run, 'tool_started', [
             'call_id' => 'run:tool:1',
@@ -98,11 +101,15 @@ class CoreAgentBenchmarkObserverTest extends TestCase
         $this->assertTrue($observation['completed']);
         $this->assertSame('lookup', $observation['mode']);
         $this->assertSame('answer', $observation['answer_type']);
+        $this->assertTrue($observation['normal_nonempty']);
+        $this->assertSame(1, $observation['cited_evidence_count']);
+        $this->assertSame(['wiki_statement'], $observation['cited_evidence_kinds']);
         $this->assertTrue($observation['citations_resolvable']);
         $this->assertTrue($observation['evidence_traceable']);
         $this->assertTrue($observation['raw_references_valid']);
         $this->assertTrue($observation['factual_sections_evidenced']);
         $this->assertTrue($observation['budget_respected']);
+        $this->assertTrue($observation['coverage_terminal']);
         $this->assertTrue($observation['semantic_events_ordered']);
         $this->assertFalse($observation['sensitive_leak']);
     }

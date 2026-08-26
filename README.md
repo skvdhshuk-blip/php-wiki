@@ -79,7 +79,7 @@ Agent 只能使用四类作用域工具：搜索 Wiki、读取 Wiki 页面、读
   → 正式答案、澄清问题或证据不足
 ```
 
-模型不能直接把 `[[source:...]]` 写进正式回答。应用只接受本次成功工具调用生成的 Evidence ID，并统一渲染 `[^E1]` 引用和来源原文。查询阶段最多执行 2 次搜索和 4 次读取；研究阶段最多执行 4 次搜索和 12 次读取。
+模型不能直接把 `[[source:...]]` 写进正式回答。应用只接受本次成功工具调用生成、运行内稳定且不复用的 Evidence ID，并统一渲染 `[^E1]` 引用和来源原文。每次知识工具完成后都会先更新证据与覆盖状态；冲突结论必须同时引用至少两条冲突证据，视觉题必须实际引用 `region:` 或 `page:` 证据。查询阶段最多执行 2 次搜索和 4 次读取；研究阶段最多执行 4 次搜索和 12 次读取。含未绑定指代的独立问题会被 QueryPlan 标记为需要澄清，不能落成确定性知识答案。
 
 ## Workspace
 
@@ -136,11 +136,12 @@ php artisan php-wiki:doctor --live
 php artisan php-wiki:rebuild-search
 php artisan php-wiki:benchmark-core-agent
 php artisan php-wiki:benchmark-core-agent --live --limit=1
+php artisan php-wiki:benchmark-core-agent --live --workspace=configured --limit=1
 ```
 
 `doctor --live` 会发送一张临时生成的测试图片，要求视觉模型调用无副作用工具，并验证正常终止和非空最终文本。
 
-`benchmark-core-agent` 会先验证固定的 50 题中英文验收集；加 `--live` 才会真实调用模型并把机器可读报告写入 `storage/app/core-agent-benchmarks/`。完整验收不传 `--limit`；smoke 可以显式限制题数。真实运行仍受 `PHP_WIKI_ALLOW_REMOTE_MODEL` 和环境 API Key 门禁保护。
+`benchmark-core-agent` 会验证固定的 50 题中英文验收集及其仓库内知识夹具。加 `--live` 才会真实调用模型并把机器可读报告写入 `storage/app/core-agent-benchmarks/`；默认把夹具临时挂载为 Wiki，并在数据库事务中运行，结束后回滚来源、FTS、聊天和运行记录，不读取或污染 `PHP_WIKI_ROOT`。完整验收不传 `--limit`；smoke 可以显式限制题数。`--workspace=configured` 仅用于诊断当前知识库，不作为可重复验收证据。真实运行仍受 `PHP_WIKI_ALLOW_REMOTE_MODEL` 和环境 API Key 门禁保护。
 
 ## 原生 macOS 开发
 
