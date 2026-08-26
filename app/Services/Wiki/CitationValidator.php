@@ -27,37 +27,60 @@ class CitationValidator
         }
 
         foreach ($matches as $match) {
-            try {
-                $sourcePath = $this->paths->assertRawPath($match[1]);
-            } catch (\InvalidArgumentException $exception) {
-                $errors[] = "无效来源路径 {$match[1]}：{$exception->getMessage()}";
+            $errors = array_merge(
+                $errors,
+                $this->validateSourceReference($match[1], strtolower($match[2]), $match[3]),
+            );
+        }
 
-                continue;
-            }
+        return array_values(array_unique($errors));
+    }
 
-            $source = $this->sources->findByPath($sourcePath);
-            if ($source === null) {
-                $errors[] = "来源未登记：{$sourcePath}";
+    /** @return list<string> */
+    public function validateSourceReference(string $path, string $sha256, string $locator): array
+    {
+        try {
+            $sourcePath = $this->paths->assertRawPath($path);
+        } catch (\InvalidArgumentException $exception) {
+            return ["无效来源路径 {$path}：{$exception->getMessage()}"];
+        }
 
-                continue;
-            }
-            if (! hash_equals((string) $source->sha256, strtolower($match[2]))) {
-                $errors[] = "来源哈希已过期：{$sourcePath}";
-            }
-            $currentHash = hash_file('sha256', $this->paths->absolute($sourcePath));
-            if ($currentHash === false || ! hash_equals(strtolower($match[2]), $currentHash)) {
-                $errors[] = "来源文件已变化，引用必须重新扫描：{$sourcePath}";
-            }
+        $source = $this->sources->findByPath($sourcePath);
+        if ($source === null) {
+            return ["来源未登记：{$sourcePath}"];
+        }
 
-            $locator = $match[3];
-            if (! preg_match('/^(lines:\d+-\d+|page:\d+|region:.+)$/u', $locator)) {
-                $errors[] = "引用定位格式无效：{$sourcePath}|{$locator}";
-            }
-            if ($source->type === 'image' && ! str_starts_with($locator, 'region:')) {
-                $errors[] = "图片引用必须包含 region：{$sourcePath}";
-            }
-            if ($source->type === 'pdf' && ! str_starts_with($locator, 'page:')) {
-                $errors[] = "PDF 引用必须包含 page：{$sourcePath}";
+        $errors = [];
+        if (! preg_match('/^[a-f0-9]{64}$/', $sha256)) {
+            $errors[] = "来源哈希格式无效：{$sourcePath}";
+        } elseif (! is_string($source->sha256) || ! hash_equals($source->sha256, $sha256)) {
+            $errors[] = "来源哈希已过期：{$sourcePath}";
+        }
+
+        $absolute = $this->paths->absolute($sourcePath);
+        $currentHash = is_file($absolute) ? hash_file('sha256', $absolute) : false;
+        if ($currentHash === false || ! hash_equals($sha256, $currentHash)) {
+            $errors[] = "来源文件已变化，引用必须重新扫描：{$sourcePath}";
+        }
+        if (! preg_match('/^(lines:[1-9]\d*-[1-9]\d*|page:[1-9]\d*|region:.+)$/u', $locator)) {
+            $errors[] = "引用定位格式无效：{$sourcePath}|{$locator}";
+        }
+        if ($source->type === 'image' && ! str_starts_with($locator, 'region:')) {
+            $errors[] = "图片引用必须包含 region：{$sourcePath}";
+        }
+        if ($source->type === 'pdf' && ! str_starts_with($locator, 'page:')) {
+            $errors[] = "PDF 引用必须包含 page：{$sourcePath}";
+        }
+        if (in_array($source->type, ['markdown', 'text', 'html'], true)
+            && ! str_starts_with($locator, 'lines:')) {
+            $errors[] = "文本引用必须包含 lines：{$sourcePath}";
+        }
+        if (preg_match('/^lines:(\d+)-(\d+)$/', $locator, $lineMatch) === 1) {
+            $start = (int) $lineMatch[1];
+            $end = (int) $lineMatch[2];
+            $lineCount = is_file($absolute) ? count(file($absolute) ?: []) : 0;
+            if ($start > $end || $end > $lineCount) {
+                $errors[] = "文本引用行号越界：{$sourcePath}|{$locator}";
             }
         }
 

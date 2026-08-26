@@ -22,22 +22,28 @@ class AgentExecutionService
         private readonly AgentRunner $runner,
     ) {}
 
-    /** @param list<string> $images */
+    /**
+     * @param  list<string>  $images
+     * @param  array<string, mixed>|null  $responseSchema
+     */
     public function invoke(
         AgentRun $run,
         Agent $agent,
         string $prompt,
         array $images = [],
         bool $allowTextFallback = false,
+        bool $emitText = true,
+        ?array $responseSchema = null,
     ): AgentInvocationOutcome {
         try {
-            $result = $this->runOnce($run, $agent, $prompt, $images);
+            $attempt = $this->runOnce($run, $agent, $prompt, $images, $emitText, $responseSchema);
+            $result = $attempt->result;
             $this->runs->recordInvocation($run, $result);
             if ($this->acceptable($result)) {
-                return new AgentInvocationOutcome($result);
+                return $attempt;
             }
             if ($result->terminationReason === RunTerminationReason::Cancelled) {
-                return new AgentInvocationOutcome($result);
+                return $attempt;
             }
 
             throw new AgentContractException(
@@ -59,7 +65,15 @@ class AgentExecutionService
                 'reason' => mb_substr($primaryError->getMessage(), 0, 500),
             ]);
             $this->runs->markFallback($run, $fallback);
-            $result = $this->runOnce($run, $agent->withModel($fallback), $prompt, []);
+            $attempt = $this->runOnce(
+                $run,
+                $agent->withModel($fallback),
+                $prompt,
+                [],
+                $emitText,
+                $responseSchema,
+            );
+            $result = $attempt->result;
             $this->runs->recordInvocation($run, $result);
             if (! $this->acceptable($result)) {
                 throw new AgentContractException(
@@ -67,15 +81,28 @@ class AgentExecutionService
                 );
             }
 
-            return new AgentInvocationOutcome($result, true);
+            return new AgentInvocationOutcome($result, true, $attempt->toolInvocations);
         }
     }
 
-    /** @param list<string> $images */
-    private function runOnce(AgentRun $run, Agent $agent, string $prompt, array $images): QueryResult
-    {
+    /**
+     * @param  list<string>  $images
+     * @param  array<string, mixed>|null  $responseSchema
+     */
+    private function runOnce(
+        AgentRun $run,
+        Agent $agent,
+        string $prompt,
+        array $images,
+        bool $emitText,
+        ?array $responseSchema,
+    ): AgentInvocationOutcome {
         $abort = new AbortController;
         $events = new AgentRunEventBuffer($this->runs, $run);
+        $trace = new AgentToolTrace(
+            $run->uuid,
+            $this->runs->events($run, ['tool_started'])->count(),
+        );
         $checkCancellation = function () use ($run, $abort): void {
             if ($this->runs->cancellationRequested($run) && ! $abort->isAborted()) {
                 $abort->abort();
@@ -84,22 +111,26 @@ class AgentExecutionService
         $checkCancellation();
 
         try {
-            return $this->runner->run($agent, $prompt, new RunOptions(
-                onText: function (string $delta) use ($events, $checkCancellation): void {
+            $result = $this->runner->run($agent, $prompt, new RunOptions(
+                onText: function (string $delta) use ($events, $checkCancellation, $emitText): void {
                     $checkCancellation();
-                    $events->text($delta);
+                    if ($emitText) {
+                        $events->text($delta);
+                    }
                 },
                 onThinking: function (string $delta) use ($events, $checkCancellation): void {
                     $checkCancellation();
                     $events->thinking($delta);
                 },
-                onToolStart: function (string $name, array $input) use ($events, $checkCancellation): void {
+                onToolStart: function (string $name, array $input) use ($events, $trace, $checkCancellation): void {
                     $checkCancellation();
-                    $events->toolStarted($name, $this->safeToolInput($input));
+                    $callId = $trace->started($name, $input);
+                    $events->toolStarted($name, $this->safeToolInput($input), $callId);
                 },
-                onToolComplete: function (string $name, ToolResult $result) use ($events, $checkCancellation): void {
+                onToolComplete: function (string $name, ToolResult $result) use ($events, $trace, $checkCancellation): void {
                     $checkCancellation();
-                    $events->toolCompleted($name, $result, $this->safeOutputPreview($result->output));
+                    $callId = $trace->completed($name, $result);
+                    $events->toolCompleted($name, $result, $this->safeOutputPreview($result->output), $callId);
                 },
                 onTurnStart: function (int $turn) use ($events, $checkCancellation): void {
                     $checkCancellation();
@@ -107,10 +138,13 @@ class AgentExecutionService
                 },
                 images: $images,
                 ephemeral: true,
+                responseSchema: $responseSchema,
                 abortController: $abort,
                 cwd: $this->paths->root(),
                 maxBudgetUsd: config('phpwiki.model.max_budget_usd'),
             ));
+
+            return new AgentInvocationOutcome($result, toolInvocations: $trace->completedInvocations());
         } finally {
             $events->flush();
         }

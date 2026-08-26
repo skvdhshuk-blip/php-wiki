@@ -3,6 +3,7 @@
 namespace App\Services\Agent\Tools;
 
 use App\Repositories\Source\SourceRepository;
+use App\Services\Agent\QueryToolBudget;
 use App\Services\Wiki\WikiPathGuard;
 
 class ReadSourceExcerptTool extends WikiSdkTool
@@ -10,6 +11,7 @@ class ReadSourceExcerptTool extends WikiSdkTool
     public function __construct(
         private readonly WikiPathGuard $paths,
         private readonly SourceRepository $sources,
+        private readonly ?QueryToolBudget $budget = null,
     ) {}
 
     public function name(): string
@@ -19,7 +21,7 @@ class ReadSourceExcerptTool extends WikiSdkTool
 
     public function description(): string
     {
-        return 'Read a bounded line excerpt from a registered text, Markdown, or HTML raw source. Visual sources must use supplied visual evidence.';
+        return 'Read a bounded raw-source excerpt. Returns a JSON evidence candidate with path, SHA-256, locator, and numbered quote.';
     }
 
     public function parameters(): array
@@ -33,6 +35,7 @@ class ReadSourceExcerptTool extends WikiSdkTool
 
     public function handle(array $input): string
     {
+        $this->budget?->admitRead();
         $path = $this->paths->assertRawPath((string) ($input['path'] ?? ''));
         $source = $this->sources->findByPath($path);
         if ($source === null) {
@@ -59,7 +62,12 @@ class ReadSourceExcerptTool extends WikiSdkTool
             $numbered[] = ($number + 1).': '.$line;
         }
 
-        return "source={$path}\nsha256={$source->sha256}\n".implode("\n", $numbered);
+        return json_encode([
+            'raw_path' => $path,
+            'raw_sha256' => $source->sha256,
+            'locator' => "lines:{$start}-{$end}",
+            'quote' => implode("\n", $numbered),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     /** @param array<string, mixed> $input */

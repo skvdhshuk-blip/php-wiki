@@ -57,7 +57,7 @@ class ChatRepository
         return $message;
     }
 
-    /** @param list<string> $citations */
+    /** @param list<array<string, mixed>> $citations */
     public function addAssistantMessage(AgentRun $run, string $content, array $citations): ?ChatMessage
     {
         if ($run->chat_thread_id === null) {
@@ -86,5 +86,14 @@ class ChatRepository
             ->where('chat_thread_id', $threadId)
             ->where('agent_run_id', $runId)
             ->exists();
+    }
+
+    public function assistantMessageForRun(int $runId): ?ChatMessage
+    {
+        return ChatMessage::query()
+            ->where('agent_run_id', $runId)
+            ->where('role', 'assistant')
+            ->latest('id')
+            ->first();
     }
 }

@@ -14,6 +14,22 @@ class ChatMessage extends Model
         return ['citations' => 'array'];
     }
 
+    /** @return list<mixed> */
+    public function citationData(): array
+    {
+        $citations = $this->getAttribute('citations');
+        if (is_array($citations)) {
+            return array_values($citations);
+        }
+        if (is_string($citations)) {
+            $decoded = json_decode($citations, true);
+
+            return is_array($decoded) && array_is_list($decoded) ? $decoded : [];
+        }
+
+        return [];
+    }
+
     /** @return BelongsTo<ChatThread, $this> */
     public function thread(): BelongsTo
     {

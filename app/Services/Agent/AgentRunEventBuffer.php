@@ -20,8 +20,10 @@ class AgentRunEventBuffer
 
     private bool $thinkingRecorded = false;
 
-    /** @var array<string, list<int|float>> */
+    /** @var array<string, list<array{at: int|float, call_id: string}>> */
     private array $toolStartedAt = [];
+
+    private int $fallbackToolSequence = 0;
 
     public function __construct(
         private readonly AgentRunRepository $runs,
@@ -61,20 +63,26 @@ class AgentRunEventBuffer
     }
 
     /** @param array<string, mixed> $input */
-    public function toolStarted(string $name, array $input): void
+    public function toolStarted(string $name, array $input, ?string $callId = null): void
     {
         $this->flushText();
-        $this->toolStartedAt[$name][] = hrtime(true);
+        $callId ??= $this->run->uuid.':event-tool:'.(++$this->fallbackToolSequence);
+        $this->toolStartedAt[$name][] = ['at' => hrtime(true), 'call_id' => $callId];
         $this->runs->event($this->run, 'tool_started', [
+            'call_id' => $callId,
             'name' => $name,
             'input' => $input,
         ]);
     }
 
-    public function toolCompleted(string $name, ToolResult $result, string $outputPreview): void
-    {
+    public function toolCompleted(
+        string $name,
+        ToolResult $result,
+        string $outputPreview,
+        ?string $callId = null,
+    ): void {
         $this->flushText();
-        $startedAt = isset($this->toolStartedAt[$name])
+        $started = isset($this->toolStartedAt[$name])
             ? array_shift($this->toolStartedAt[$name])
             : null;
         if (($this->toolStartedAt[$name] ?? []) === []) {
@@ -82,11 +90,12 @@ class AgentRunEventBuffer
         }
 
         $this->runs->event($this->run, 'tool_completed', [
+            'call_id' => $callId ?? $started['call_id'] ?? null,
             'name' => $name,
             'is_error' => $result->isError,
-            'duration_ms' => $startedAt === null
+            'duration_ms' => $started === null
                 ? null
-                : max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000)),
+                : max(0, (int) round((hrtime(true) - $started['at']) / 1_000_000)),
             'output_preview' => $outputPreview,
         ]);
     }

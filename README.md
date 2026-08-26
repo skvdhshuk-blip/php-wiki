@@ -68,6 +68,19 @@ Docker Compose 固定包含三个服务：
 
 Agent 只能使用四类作用域工具：搜索 Wiki、读取 Wiki 页面、读取文字来源摘录、记录页面提案。没有 Bash、通用文件写入、网页抓取或直接修改 `raw/` 的能力。
 
+知识问答使用独立的证据优先链路：
+
+```text
+问题范围与 lookup/research 计划
+  → 有预算的 Wiki 检索和读取
+  → 运行内 EvidenceBundle
+  → 无工具的结构化答案编排
+  → 确定性 Evidence ID / 来源哈希 / locator 核验
+  → 正式答案、澄清问题或证据不足
+```
+
+模型不能直接把 `[[source:...]]` 写进正式回答。应用只接受本次成功工具调用生成的 Evidence ID，并统一渲染 `[^E1]` 引用和来源原文。查询阶段最多执行 2 次搜索和 4 次读取；研究阶段最多执行 4 次搜索和 12 次读取。
+
 ## Workspace
 
 Docker 默认把 `./wiki-data` 挂载到容器 `/wiki`。也可以设置绝对路径：
@@ -121,9 +134,13 @@ php artisan php-wiki:lint
 php artisan php-wiki:lint --semantic
 php artisan php-wiki:doctor --live
 php artisan php-wiki:rebuild-search
+php artisan php-wiki:benchmark-core-agent
+php artisan php-wiki:benchmark-core-agent --live --limit=1
 ```
 
 `doctor --live` 会发送一张临时生成的测试图片，要求视觉模型调用无副作用工具，并验证正常终止和非空最终文本。
+
+`benchmark-core-agent` 会先验证固定的 50 题中英文验收集；加 `--live` 才会真实调用模型并把机器可读报告写入 `storage/app/core-agent-benchmarks/`。完整验收不传 `--limit`；smoke 可以显式限制题数。真实运行仍受 `PHP_WIKI_ALLOW_REMOTE_MODEL` 和环境 API Key 门禁保护。
 
 ## 原生 macOS 开发
 
@@ -150,8 +167,8 @@ php artisan reverb:start --host=127.0.0.1 --port=8080
 - Laravel Framework 13.27.0
 - Livewire 4.4.2 / Flux 2.x
 - Laravel Octane 2.19.1
-- Hao Code 1.21.0
+- Hao Code 1.21.1
 - PHP 8.4 / Node 24.14.1
 - FrankenPHP 1.12.7
 
-Hao Code 通过公开 Git repository 锁定 `v1.21.0`，避免包索引延迟。详细边界见 [架构说明](docs/ARCHITECTURE.md) 和[隐私说明](docs/PRIVACY.md)。
+Hao Code 通过公开 Git repository 锁定 `v1.21.1`，避免包索引延迟。详细边界见 [架构说明](docs/ARCHITECTURE.md) 和[隐私说明](docs/PRIVACY.md)。

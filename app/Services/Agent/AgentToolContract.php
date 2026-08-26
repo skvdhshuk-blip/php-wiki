@@ -23,20 +23,30 @@ class AgentToolContract
         $pending = [];
 
         foreach ($events as $event) {
-            $name = (string) ($event->payloadData()['name'] ?? 'unknown');
+            $payload = $event->payloadData();
+            $name = (string) ($payload['name'] ?? 'unknown');
+            $identity = is_string($payload['call_id'] ?? null) && $payload['call_id'] !== ''
+                ? $payload['call_id']
+                : $name;
             if ($event->type === 'tool_started') {
-                $pending[$name] = ($pending[$name] ?? 0) + 1;
+                $pending[$identity] = [
+                    'name' => $name,
+                    'count' => ($pending[$identity]['count'] ?? 0) + 1,
+                ];
 
                 continue;
             }
 
-            if (($pending[$name] ?? 0) < 1) {
+            if (($pending[$identity]['count'] ?? 0) < 1) {
                 throw new AgentContractException("工具生命周期不完整：{$name} 缺少 started 事件。");
             }
-            $pending[$name]--;
+            $pending[$identity]['count']--;
         }
 
-        $unfinished = array_keys(array_filter($pending, static fn (int $count): bool => $count > 0));
+        $unfinished = array_values(array_map(
+            static fn (array $item): string => $item['name'],
+            array_filter($pending, static fn (array $item): bool => $item['count'] > 0),
+        ));
         if ($unfinished !== []) {
             throw new AgentContractException('工具生命周期不完整：'.implode(', ', $unfinished).' 缺少 completed 事件。');
         }

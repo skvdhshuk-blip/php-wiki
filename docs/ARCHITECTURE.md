@@ -10,6 +10,7 @@
 | 待审批内容 | SQLite `wiki_proposals` / `wiki_page_changes` |
 | 运行状态 | SQLite `agent_runs` / `agent_events` |
 | 搜索 | 可从 Markdown 重建的 SQLite FTS5 |
+| 单次问答证据 | 从本次成功工具调用构建并写入 `agent_events` 的 `EvidenceBundle` |
 
 Livewire 组件只接收输入、调用 Application Service、展示状态。业务编排位于 `app/Services`，Eloquent 查询集中在 `app/Repositories`，跨层结构使用 `app/Entities`，状态值位于 `app/Constants`。
 
@@ -18,6 +19,29 @@ Livewire 组件只接收输入、调用 Application Service、展示状态。业
 Hao Code 的图片输入来自 `RunOptions::images`，因此 `VisionAnalystAgent` 由应用直接调用，图片附在初始用户消息中。ToolResult 是字符串，不能把它伪装成视觉输入。视觉结果转换成带路径、哈希和页码/区域的文字证据，再交给 Mapper、Auditor 和 Orchestrator。
 
 PDF 每页分别执行文字提取和渲染；每批默认八页。图片缓存位于 Laravel storage，不进入 Wiki Git 仓库，也不会覆盖 `raw/`。
+
+## 证据优先问答
+
+查询链的规范顺序是：
+
+```text
+QueryPlan
+  → QueryToolBudget
+  → AgentToolInvocation
+  → EvidenceBundle
+  → AnswerDraft
+  → AnswerVerifier
+  → ChatMessage
+```
+
+- `QueryPlan` 确定 `lookup` 或 `research`、子问题、查询改写和固定工具预算。
+- 三个知识工具只返回有身份的 JSON envelope；工具输出本身不是正式引用。
+- `EvidenceBundleBuilder` 只消费本次运行内完成且成功的工具调用，重新核对 Wiki SHA-256、raw 路径、raw SHA-256 和 locator。
+- 答案 Agent 没有工具，只接收 QueryPlan 和 EvidenceBundle。模型生成的未知引用、无证据 section、未披露缺口或冲突、过高置信度都会被拒绝。
+- Verifier 只允许一次基于错误清单的修正；第二次仍失败时不创建 assistant message。
+- SQLite 先持久化语义事件，Reverb 仍只广播 `{run_id, sequence, type}` 失效通知。
+
+固定的 50 题验收集位于 `resources/core-agent/acceptance-corpus.json`。`php-wiki:benchmark-core-agent --live` 从持久化事件和正式消息重建观察结果，不读取模型思维链。
 
 ## 提案事务
 

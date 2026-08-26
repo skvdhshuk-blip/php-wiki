@@ -2,6 +2,7 @@
 
 namespace App\Services\Agent\Tools;
 
+use App\Services\Agent\QueryToolBudget;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
 
@@ -10,6 +11,7 @@ class ReadWikiPageTool extends WikiSdkTool
     public function __construct(
         private readonly WikiPathGuard $paths,
         private readonly WikiWorkspace $workspace,
+        private readonly ?QueryToolBudget $budget = null,
     ) {}
 
     public function name(): string
@@ -19,7 +21,7 @@ class ReadWikiPageTool extends WikiSdkTool
 
     public function description(): string
     {
-        return 'Read one approved Markdown page from wiki/ or the AGENTS.md schema.';
+        return 'Read one approved Markdown page. Returns a JSON envelope with path, SHA-256, content, and declared raw-source citations.';
     }
 
     public function parameters(): array
@@ -31,12 +33,21 @@ class ReadWikiPageTool extends WikiSdkTool
 
     public function handle(array $input): string
     {
+        $this->budget?->admitRead();
         $path = $this->paths->assertManagedPath((string) ($input['path'] ?? ''));
         if (! $this->workspace->exists($path)) {
             throw new \InvalidArgumentException("Wiki page not found: {$path}");
         }
 
-        return $this->workspace->read($path);
+        $content = $this->workspace->read($path);
+        preg_match_all('/\[\[source:[^\]]+\]\]/u', $content, $matches);
+
+        return json_encode([
+            'path' => $path,
+            'sha256' => hash('sha256', $content),
+            'content' => $content,
+            'source_citations' => array_values(array_unique($matches[0])),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     /** @param array<string, mixed> $input */

@@ -80,4 +80,39 @@ class AgentRunRealtimeUiTest extends TestCase
 
         $this->assertDatabaseHas('agent_events', ['id' => $event->id, 'type' => 'turn_started']);
     }
+
+    public function test_activity_presents_agent_phase_coverage_and_verified_source_without_chain_of_thought(): void
+    {
+        $runs = app(AgentRunRepository::class);
+        $run = $runs->createQueued('query', 'question');
+        $runs->start($run);
+        $runs->event($run, 'query_scoped', [
+            'mode' => 'lookup',
+            'reason' => '问题指向单一事实或主题，可使用快速查找。',
+        ]);
+        $runs->event($run, 'plan_completed', ['mode' => 'lookup']);
+        $runs->event($run, 'retrieval_started', ['max_searches' => 2, 'max_reads' => 4]);
+        $runs->event($run, 'evidence_added', [
+            'evidence_id' => 'E1',
+            'raw_path' => 'raw/career.md',
+            'wiki_path' => 'wiki/concepts/career.md',
+            'locator' => 'lines:2-2',
+            'quote' => '保持清晰边界是职场生存的重要原则。',
+        ]);
+        $runs->event($run, 'coverage_updated', [
+            'coverage' => ['Q1' => 'covered'],
+            'gaps' => [],
+            'conflicts' => [],
+            'warnings' => [],
+        ]);
+
+        Livewire::test(AgentRunActivity::class, ['runId' => $run->id])
+            ->assertSee('正在生成答案')
+            ->assertSee('快速查找')
+            ->assertSee('覆盖 1/1 个子问题')
+            ->assertSee('已验证来源')
+            ->assertSee('raw/career.md')
+            ->assertSee('保持清晰边界是职场生存的重要原则。')
+            ->assertDontSee('private chain of thought');
+    }
 }

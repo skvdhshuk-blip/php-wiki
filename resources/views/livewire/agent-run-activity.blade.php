@@ -27,6 +27,32 @@
         </div>
     </div>
 
+    @if ($activity['mode_label'] || $activity['stage_label'])
+        <div class="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-3 text-sm dark:border-indigo-900 dark:bg-indigo-950/30">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium">{{ $activity['stage_label'] }}</span>
+                @if ($activity['mode_label'])
+                    <flux:badge size="sm" color="indigo">{{ $activity['mode_label'] }}</flux:badge>
+                @endif
+                @if ($activity['coverage_count'] > 0)
+                    <span class="text-xs text-zinc-500">覆盖 {{ $activity['covered_count'] }}/{{ $activity['coverage_count'] }} 个子问题</span>
+                @endif
+                @if ($activity['evidence_count'] > 0)
+                    <span class="text-xs text-zinc-500">{{ $activity['evidence_count'] }} 条证据</span>
+                @endif
+            </div>
+            @if ($activity['scope_reason'])
+                <p class="mt-1 text-xs text-zinc-500">{{ $activity['scope_reason'] }}</p>
+            @endif
+            @if ($activity['gaps'] !== [])
+                <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">证据缺口：{{ implode('；', $activity['gaps']) }}</p>
+            @endif
+            @if ($activity['conflicts'] !== [])
+                <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">冲突证据：{{ implode('；', $activity['conflicts']) }}</p>
+            @endif
+        </div>
+    @endif
+
     @if ($activity['thinking'])
         <div class="mt-3 flex items-center gap-2 text-sm text-zinc-500">
             <flux:skeleton class="h-2 w-16" />
@@ -46,7 +72,27 @@
         @endif
     @endif
 
-    <div class="mt-4 space-y-2">
+    @if ($activity['evidence'] !== [])
+        <details class="mt-4 rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+            <summary class="cursor-pointer px-3 py-2.5 text-sm font-medium">已验证来源（{{ $activity['evidence_count'] }}）</summary>
+            <div class="space-y-2 border-t border-zinc-200 px-3 py-3 dark:border-zinc-700">
+                @foreach ($activity['evidence'] as $item)
+                    <div class="rounded-lg bg-zinc-100 p-3 text-xs dark:bg-zinc-950">
+                        <div class="flex flex-wrap items-center gap-2 font-medium">
+                            <span>{{ $item['evidence_id'] ?? 'Evidence' }}</span>
+                            <span class="font-mono">{{ $item['raw_path'] ?: ($item['wiki_path'] ?? '—') }}</span>
+                            <span class="text-zinc-500">{{ $item['locator'] ?? '—' }}</span>
+                        </div>
+                        <p class="mt-2 whitespace-pre-wrap leading-5 text-zinc-600 dark:text-zinc-300">{{ $item['quote'] ?? '' }}</p>
+                    </div>
+                @endforeach
+            </div>
+        </details>
+    @endif
+
+    <details class="mt-4" @if ($activity['tools'] === [] && $activity['active']) open @endif>
+        <summary class="cursor-pointer text-xs font-medium text-zinc-500">工具调用诊断（{{ count($activity['tools']) }}）</summary>
+        <div class="mt-2 space-y-2">
         @forelse ($activity['tools'] as $tool)
             <details class="group rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
                 <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm">
@@ -74,7 +120,8 @@
                 <div class="rounded-xl border border-dashed border-zinc-300 px-3 py-3 text-sm text-zinc-500 dark:border-zinc-700">等待 Agent 选择知识工具……</div>
             @endif
         @endforelse
-    </div>
+        </div>
+    </details>
 
     @if ($this->run->error_message)
         <div class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{{ $this->run->error_message }}</div>

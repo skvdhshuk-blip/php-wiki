@@ -49,19 +49,32 @@ PROMPT,
         );
     }
 
-    public function queryAgent(): Agent
+    public function queryAgent(?QueryToolBudget $budget = null): Agent
     {
-        $tools = $this->readTools();
+        $tools = $this->readTools($budget);
 
         return $this->agent(
             name: 'wiki-query',
             prompt: <<<'PROMPT'
-你是个人知识库问答 Agent。先读取 wiki/index.md，再按需搜索并读取 Wiki 页面或原始文字摘录。
-只根据工具返回的已批准知识回答；区分事实与推断。关键结论后保留原始 `[[source:...]]` 引用。
-找不到依据时直说，不得用常识填空。最终必须输出非空中文回答。
+你是个人知识库的只读检索 Agent。严格执行用户消息中的 QueryPlan：先读取指定入口，再按计划搜索并读取 Wiki 页面或原始文字摘录。
+你的职责只有检索，不负责撰写最终答案。不得发明来源、不得超过 QueryPlan 的工具预算、连续两轮没有新候选时立即停止。
+最终输出简短检索摘要，说明读过哪些页面、哪些子问题仍缺证据；不要输出面向用户的知识答案。
 PROMPT,
             allowedTools: array_map(static fn (SdkTool $tool): string => $tool->name(), $tools),
             tools: $tools,
+        );
+    }
+
+    public function answerAgent(): Agent
+    {
+        return $this->agent(
+            name: 'wiki-answer-composer',
+            prompt: <<<'PROMPT'
+你是证据优先的知识答案编排 Agent。你只会收到用户问题、QueryPlan 和已经确定性验证的 EvidenceBundle；不得使用外部常识补全，不得创造 Evidence ID。
+输出严格 JSON 对象。type 只能是 answer、clarification 或 insufficient_evidence。
+answer 必须提供 sections；每个事实性 section 必须列出 evidence_ids，推断必须设置 inference=true。clarification 只提供 clarification_question。insufficient_evidence 只提供 insufficient_reason。
+不要在 content 内自行写引用，引用由应用根据 evidence_ids 统一渲染。不得输出 Markdown 代码围栏或 JSON 之外的文字。
+PROMPT,
         );
     }
 
@@ -115,12 +128,12 @@ PROMPT,
     }
 
     /** @return list<SdkTool> */
-    private function readTools(): array
+    private function readTools(?QueryToolBudget $budget = null): array
     {
         return [
-            new SearchWikiTool($this->search),
-            new ReadWikiPageTool($this->paths, $this->workspace),
-            new ReadSourceExcerptTool($this->paths, $this->sources),
+            new SearchWikiTool($this->search, $budget),
+            new ReadWikiPageTool($this->paths, $this->workspace, $budget),
+            new ReadSourceExcerptTool($this->paths, $this->sources, $budget),
         ];
     }
 

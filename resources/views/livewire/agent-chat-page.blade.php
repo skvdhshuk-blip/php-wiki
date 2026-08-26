@@ -30,6 +30,23 @@
                             <span>{{ count($message->citations ?? []) }} 条引用</span>
                             <flux:button size="xs" wire:click="saveAnswer({{ $message->id }})">保存为提案</flux:button>
                         </div>
+                        @if (($message->citations ?? []) !== [])
+                            <details class="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
+                                <summary class="cursor-pointer font-medium">查看引用原文</summary>
+                                <div class="mt-2 space-y-2">
+                                    @foreach ($message->citations as $citation)
+                                        @if (is_array($citation))
+                                            <div class="rounded-lg bg-white/70 p-2 dark:bg-zinc-950/50">
+                                                <div class="font-mono">{{ $citation['evidence_id'] ?? 'Evidence' }} · {{ $citation['raw_path'] ?: ($citation['wiki_path'] ?? '—') }} · {{ $citation['locator'] ?? '—' }}</div>
+                                                <p class="mt-1 whitespace-pre-wrap leading-5">{{ $citation['quote'] ?? '' }}</p>
+                                            </div>
+                                        @else
+                                            <div class="font-mono">{{ $citation }}</div>
+                                        @endif
+                                    @endforeach
+                                </div>
+                            </details>
+                        @endif
                     @endif
                 </div>
                 @if ($message->role === 'user' && $message->agent_run_id)
