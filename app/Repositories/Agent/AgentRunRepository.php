@@ -60,6 +60,7 @@ class AgentRunRepository
         return AgentEvent::query()
             ->where('agent_run_id', $run->id)
             ->whereIn('type', $types)
+            ->orderBy('sequence')
             ->get();
     }
 

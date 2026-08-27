@@ -7,6 +7,7 @@ use App\Models\ChatThread;
 use App\Repositories\Chat\ChatRepository;
 use App\Services\Agent\AgentAnswerPresenter;
 use App\Services\Application\AgentRunDispatchService;
+use App\Services\Application\ProposalDraftService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -139,10 +140,10 @@ class AgentChatPage extends Component
         $this->dispatch('focus-agent-composer');
     }
 
-    public function saveAnswer(int $messageId, AgentRunDispatchService $dispatch, ChatRepository $chats): void
+    public function saveAnswer(int $messageId, ProposalDraftService $drafts, ChatRepository $chats): void
     {
         $message = $chats->findMessageInThread($this->threadId, $messageId);
-        $proposal = $dispatch->saveAnswerAsProposal($message);
+        $proposal = $drafts->fromVerifiedAnswer($message);
         Flux::toast(variant: 'success', text: "保存提案已创建：{$proposal->uuid}");
     }
 

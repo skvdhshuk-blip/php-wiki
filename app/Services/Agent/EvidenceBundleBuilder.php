@@ -9,6 +9,7 @@ use App\Entities\QueryPlan;
 use App\Exceptions\AgentContractException;
 use App\Services\Source\SourceCatalog;
 use App\Services\Wiki\CitationValidator;
+use App\Services\Wiki\SourceCitationCodec;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
 
@@ -16,6 +17,7 @@ class EvidenceBundleBuilder
 {
     public function __construct(
         private readonly CitationValidator $citations,
+        private readonly SourceCitationCodec $citationCodec,
         private readonly WikiPathGuard $paths,
         private readonly SourceCatalog $catalog,
         private readonly WikiWorkspace $workspace,
@@ -144,21 +146,17 @@ class EvidenceBundleBuilder
             return [];
         }
 
-        preg_match_all(
-            '/\[\[source:([^|\]]+)\|sha256:([a-f0-9]{64})\|([^\]]+)\]\]/i',
-            $content,
-            $matches,
-            PREG_SET_ORDER | PREG_OFFSET_CAPTURE,
-        );
+        $matches = $this->citationCodec->matches($content);
         $hasRawCitations = str_contains($content, '[[source:');
-        if ($hasRawCitations && substr_count($content, '[[source:') !== count($matches)) {
+        if ($hasRawCitations && $this->citationCodec->countMarkers($content) !== count($matches)) {
             $warnings[] = "{$path} 包含格式不完整的 source 引用，相关 Wiki 陈述已隔离。";
         }
         $candidates = [];
         foreach ($matches as $match) {
-            $rawPath = $match[1][0];
-            $sha256 = strtolower($match[2][0]);
-            $locator = $match[3][0];
+            $citation = $match['citation'];
+            $rawPath = $citation->path;
+            $sha256 = $citation->sha256;
+            $locator = $citation->locator;
             $errors = $this->citations->validateSourceReference($rawPath, $sha256, $locator);
             if ($errors !== []) {
                 foreach ($errors as $error) {
@@ -168,7 +166,7 @@ class EvidenceBundleBuilder
                 continue;
             }
 
-            $claim = $this->lineAtOffset($content, $match[0][1]);
+            $claim = $this->lineAtOffset($content, $match['offset']);
             $quote = str_starts_with($locator, 'lines:')
                 ? $this->readLineQuote($rawPath, $locator)
                 : $this->cleanClaim($claim);
@@ -329,12 +327,6 @@ class EvidenceBundleBuilder
     private function matches(string $question, EvidenceItem $item): bool
     {
         $evidenceText = $item->claimHint.' '.$item->quote;
-        if ($item->confidence === 'high'
-            && $item->rawPath !== null
-            && $this->hasHanCharacters($question) !== $this->hasHanCharacters($evidenceText)) {
-            return ! $this->asksForExplanation($question) || $this->containsExplanation($evidenceText);
-        }
-
         $haystack = mb_strtolower($item->wikiPath.' '.$evidenceText);
         $tokens = $this->tokens($question);
         $matched = 0;
@@ -384,11 +376,6 @@ class EvidenceBundleBuilder
         return preg_match('/来自章节|第[一二三四五六七八九十百\d]+章|\bchapter\s+\w+/iu', $evidence) === 1;
     }
 
-    private function hasHanCharacters(string $text): bool
-    {
-        return preg_match('/\p{Han}/u', $text) === 1;
-    }
-
     private function statesKnowledgeAbsence(EvidenceItem $item): bool
     {
         $text = mb_strtolower($item->claimHint.' '.$item->quote);
@@ -436,7 +423,9 @@ class EvidenceBundleBuilder
 
     private function cleanClaim(string $claim): string
     {
-        $claim = preg_replace('/\[\[source:[^\]]+\]\]/u', '', $claim) ?? $claim;
+        foreach ($this->citationCodec->matches($claim) as $match) {
+            $claim = str_replace($match['markdown'], '', $claim);
+        }
         $claim = preg_replace('/\s+/u', ' ', strip_tags($claim)) ?? $claim;
 
         return trim(mb_substr($claim, 0, 800), " \t\n\r\0\x0B#-*>");

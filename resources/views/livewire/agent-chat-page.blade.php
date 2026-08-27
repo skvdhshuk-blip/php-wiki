@@ -93,9 +93,11 @@
                                         <button type="button" class="agent-answer-action" x-on:click="copyAnswer($el.closest('article').querySelector('[data-agent-answer]').innerText, {{ $message->id }})">
                                             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></svg><span x-show="copiedMessageId !== {{ $message->id }}">复制</span><span x-cloak x-show="copiedMessageId === {{ $message->id }}">已复制</span>
                                         </button>
-                                        <button type="button" class="agent-answer-action" wire:click="saveAnswer({{ $message->id }})">
-                                            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1Z" /></svg>保存为提案
-                                        </button>
+                                        @if ($answer['type'] === 'answer' && $answer['citations'] !== [])
+                                            <button type="button" class="agent-answer-action" wire:click="saveAnswer({{ $message->id }})">
+                                                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1Z" /></svg>保存为提案
+                                            </button>
+                                        @endif
                                     </div>
                                     @if ($answer['suggestions'] !== [])
                                         <div class="mt-5" aria-label="继续追问">

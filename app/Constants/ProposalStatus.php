@@ -8,7 +8,6 @@ enum ProposalStatus: string
     case Pending = 'pending';
     case Invalid = 'invalid';
     case Stale = 'stale';
-    case Approved = 'approved';
     case Rejected = 'rejected';
     case Applied = 'applied';
 }

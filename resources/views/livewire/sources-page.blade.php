@@ -30,7 +30,7 @@
                             </td>
                             <td class="px-4 py-4">{{ $source->type }}</td>
                             <td class="px-4 py-4">{{ $source->revision }}</td>
-                            <td class="px-4 py-4"><flux:badge>{{ $source->status }}</flux:badge></td>
+                            <td class="px-4 py-4"><flux:badge>{{ \App\Constants\SourceStatus::tryFrom($source->status)?->label() ?? $source->status }}</flux:badge></td>
                             <td class="px-4 py-4 text-right">
                                 <flux:button size="sm" wire:click="ingest({{ $source->id }})" :disabled="in_array($source->status, ['processing', 'missing'])">摄取</flux:button>
                             </td>

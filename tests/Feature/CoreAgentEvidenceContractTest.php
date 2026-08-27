@@ -20,6 +20,8 @@ use App\Services\Agent\Tools\ReadWikiPageTool;
 use App\Services\Source\SourceCatalog;
 use App\Services\Source\SourceLinkResolver;
 use App\Services\Source\SourceScanner;
+use App\Services\Wiki\CitationValidator;
+use App\Services\Wiki\SourceCitationCodec;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -78,7 +80,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => $sha,
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
         $page = "# 职场生存\n\n保持清晰边界很重要。 [[source:raw/career.md|sha256:{$sha}|lines:2-2]]\n";
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/career.md', $page);
@@ -114,7 +116,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => $sha,
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
         $page = "# 增长\n\n不要揣测原因。 [[source:raw/growth.md|sha256:{$sha}|lines:2-2]]\n";
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/growth.md', $page);
@@ -160,7 +162,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => $sha,
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
         $page = "# 原则\n\n原则与章节。 [[source:raw/principle.md|sha256:{$sha}|lines:1-2]]\n";
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/principle.md', $page);
@@ -191,7 +193,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => hash('sha256', $raw),
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
         $page = '# Fact'."\n\n".'伪引用 [[source:raw/fact.md|sha256:'.str_repeat('a', 64).'|lines:1-1]]'."\n";
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/fact.md', $page);
@@ -233,9 +235,9 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertSame(['知识库中记录的火星办公室地址是什么？'], $bundle->gaps);
     }
 
-    public function test_high_confidence_raw_evidence_can_cover_a_cross_language_question(): void
+    public function test_unrelated_cross_language_evidence_stays_a_gap(): void
     {
-        $raw = "The mark has two red cube outlines.\n";
+        $raw = "The cafeteria closes at five.\n";
         File::put($this->wikiRoot.'/raw/brand.md', $raw);
         $sha = hash('sha256', $raw);
         WikiSource::query()->create([
@@ -244,9 +246,9 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => $sha,
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
-        $page = "# Brand\n\nThe mark has two red cube outlines. "
+        $page = "# Cafeteria\n\nThe cafeteria closes at five. "
             ."[[source:raw/brand.md|sha256:{$sha}|lines:1-1]]\n";
         app(WikiWorkspace::class)->atomicWrite('wiki/concepts/brand.md', $page);
 
@@ -257,6 +259,37 @@ class CoreAgentEvidenceContractTest extends TestCase
                 'ReadWikiPage',
                 ['path' => 'wiki/concepts/brand.md'],
                 $this->pageEnvelope('wiki/concepts/brand.md', $page),
+                false,
+            )],
+        );
+
+        $this->assertSame('gap', $bundle->coverage['Q1']);
+    }
+
+    public function test_explicit_bilingual_claim_can_cover_a_cross_language_question(): void
+    {
+        $raw = "The mark has two red cube outlines.\n";
+        File::put($this->wikiRoot.'/raw/brand-bilingual.md', $raw);
+        $sha = hash('sha256', $raw);
+        WikiSource::query()->create([
+            'path' => 'raw/brand-bilingual.md',
+            'type' => 'markdown',
+            'sha256' => $sha,
+            'size' => strlen($raw),
+            'mtime' => 1,
+            'status' => 'processed',
+        ]);
+        $page = "# Brand\n\n品牌图标由两个红色立方体轮廓组成（two red cube outlines）。 "
+            ."[[source:raw/brand-bilingual.md|sha256:{$sha}|lines:1-1]]\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/brand-bilingual.md', $page);
+
+        $bundle = app(EvidenceBundleBuilder::class)->build(
+            app(QueryPlanningService::class)->plan('品牌图标由几个红色立方体轮廓组成？'),
+            [new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/brand-bilingual.md'],
+                $this->pageEnvelope('wiki/concepts/brand-bilingual.md', $page),
                 false,
             )],
         );
@@ -369,7 +402,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => $sha,
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
         $page = "# Source\n\nline two [[source:raw/source.txt|sha256:{$sha}|lines:2-2]]\n";
         app(WikiWorkspace::class)->atomicWrite('wiki/sources/source.md', $page);
@@ -378,6 +411,8 @@ class CoreAgentEvidenceContractTest extends TestCase
             app(WikiPathGuard::class),
             app(WikiWorkspace::class),
             app(SourceLinkResolver::class),
+            app(SourceCitationCodec::class),
+            app(CitationValidator::class),
         ))->handle(['path' => 'wiki/sources/source.md']), true, flags: JSON_THROW_ON_ERROR);
         $this->assertSame('wiki/sources/source.md', $wikiEnvelope['path']);
         $this->assertSame(hash('sha256', $page), $wikiEnvelope['sha256']);
@@ -396,6 +431,16 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertSame($sha, $sourceEnvelope['raw_sha256']);
         $this->assertSame('lines:2-2', $sourceEnvelope['locator']);
         $this->assertSame('2: line two', $sourceEnvelope['quote']);
+
+        File::put($this->wikiRoot.'/raw/source.txt', "changed\n");
+        $staleEnvelope = json_decode((new ReadWikiPageTool(
+            app(WikiPathGuard::class),
+            app(WikiWorkspace::class),
+            app(SourceLinkResolver::class),
+            app(SourceCitationCodec::class),
+            app(CitationValidator::class),
+        ))->handle(['path' => 'wiki/sources/source.md']), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame([], $staleEnvelope['source_citations']);
     }
 
     public function test_legacy_obsidian_source_link_is_only_exposed_as_a_registered_read_candidate(): void
@@ -411,6 +456,8 @@ class CoreAgentEvidenceContractTest extends TestCase
             app(WikiPathGuard::class),
             app(WikiWorkspace::class),
             app(SourceLinkResolver::class),
+            app(SourceCitationCodec::class),
+            app(CitationValidator::class),
         ))->handle(['path' => 'wiki/concepts/legacy.md']), true, flags: JSON_THROW_ON_ERROR);
 
         $this->assertSame([], $envelope['source_citations']);
@@ -493,7 +540,7 @@ class CoreAgentEvidenceContractTest extends TestCase
                 'sha256' => $source[1],
                 'size' => $source[2],
                 'mtime' => 1,
-                'status' => 'ready',
+                'status' => 'processed',
             ]);
         }
         $page = "# 远程政策\n\n"
@@ -552,7 +599,7 @@ class CoreAgentEvidenceContractTest extends TestCase
             'sha256' => $sha256,
             'size' => strlen($raw),
             'mtime' => 1,
-            'status' => 'ready',
+            'status' => 'processed',
         ]);
 
         return "# Evidence\n\n{$claim} [[source:{$rawPath}|sha256:{$sha256}|lines:1-1]]\n";

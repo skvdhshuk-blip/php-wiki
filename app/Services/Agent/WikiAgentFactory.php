@@ -11,6 +11,8 @@ use App\Services\Agent\Tools\ReadWikiPageTool;
 use App\Services\Agent\Tools\SearchWikiTool;
 use App\Services\Source\SourceCatalog;
 use App\Services\Source\SourceLinkResolver;
+use App\Services\Wiki\CitationValidator;
+use App\Services\Wiki\SourceCitationCodec;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiSearchService;
 use App\Services\Wiki\WikiWorkspace;
@@ -27,6 +29,8 @@ class WikiAgentFactory
         private readonly SourceLinkResolver $sourceLinks,
         private readonly SourceRepository $sources,
         private readonly ProposalRepository $proposals,
+        private readonly SourceCitationCodec $citations,
+        private readonly CitationValidator $citationValidator,
     ) {}
 
     public function visionAnalyst(): Agent
@@ -137,7 +141,14 @@ PROMPT,
     {
         return [
             new SearchWikiTool($this->search, $budget),
-            new ReadWikiPageTool($this->paths, $this->workspace, $this->sourceLinks, $budget),
+            new ReadWikiPageTool(
+                $this->paths,
+                $this->workspace,
+                $this->sourceLinks,
+                $this->citations,
+                $this->citationValidator,
+                $budget,
+            ),
             new ReadSourceExcerptTool($this->catalog, $this->sources, $budget),
         ];
     }
