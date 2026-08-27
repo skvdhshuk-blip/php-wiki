@@ -107,7 +107,7 @@ PROMPT;
                 throw new AgentContractException("提案未通过确定性验证：\n".implode("\n", $errors));
             }
 
-            $this->sources->markReady($source);
+            $this->sources->markProcessed($source);
             $this->runs->completeWorkflow($run, $outcome->result, $outcome->fallbackUsed);
         } catch (\Throwable $exception) {
             $this->proposals->invalidateDraft($proposal, '关联 Agent 运行未形成有效 ChangeSet。');

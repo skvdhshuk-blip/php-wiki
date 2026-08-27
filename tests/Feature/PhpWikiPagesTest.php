@@ -58,5 +58,8 @@ class PhpWikiPagesTest extends TestCase
             ->assertHasNoErrors();
 
         Queue::assertPushed(IngestSourceJob::class, fn (IngestSourceJob $job): bool => $job->sourceId === $source->id);
+
+        $source->update(['status' => 'processed']);
+        Livewire::test(SourcesPage::class)->assertSee('已处理')->assertDontSee('ready');
     }
 }

@@ -49,6 +49,37 @@ class GitWorkspaceService
         return $process->isSuccessful() ? trim($process->getOutput()) : null;
     }
 
+    public function findCommitByMessage(string $message): ?string
+    {
+        $process = new Process([
+            'git',
+            'log',
+            '--all',
+            '--format=%H%x09%s',
+            '--fixed-strings',
+            '--grep='.$message,
+        ], $this->paths->root());
+        $process->setTimeout(60);
+        $process->run();
+        if (! $process->isSuccessful()) {
+            throw new RuntimeException(trim($process->getErrorOutput() ?: $process->getOutput()));
+        }
+
+        foreach (preg_split('/\R/', trim($process->getOutput())) ?: [] as $line) {
+            [$hash, $subject] = array_pad(explode("\t", $line, 2), 2, null);
+            if (is_string($hash) && is_string($subject) && $subject === $message) {
+                return $hash;
+            }
+        }
+
+        return null;
+    }
+
+    public function containsCommit(string $commitHash): bool
+    {
+        return $this->succeeds(['git', 'merge-base', '--is-ancestor', $commitHash, 'HEAD']);
+    }
+
     /** @param list<string> $paths */
     public function rewindLastCommit(string $expectedHead, string $parent, array $paths): void
     {
@@ -57,6 +88,12 @@ class GitWorkspaceService
         }
 
         $this->run(['git', 'reset', '--soft', $parent]);
+        $this->run(['git', 'reset', '--mixed', $parent, '--', ...$paths]);
+    }
+
+    /** @param list<string> $paths */
+    public function unstagePaths(string $parent, array $paths): void
+    {
         $this->run(['git', 'reset', '--mixed', $parent, '--', ...$paths]);
     }
 

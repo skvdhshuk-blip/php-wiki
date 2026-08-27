@@ -15,7 +15,7 @@ class DashboardReadRepository
     /**
      * @return array{
      *   sourceCount: int,
-     *   readyCount: int,
+     *   processedCount: int,
      *   pendingProposalCount: int,
      *   activeRunCount: int,
      *   totalCost: float,
@@ -27,7 +27,7 @@ class DashboardReadRepository
     {
         return [
             'sourceCount' => WikiSource::query()->count(),
-            'readyCount' => WikiSource::query()->where('status', SourceStatus::Ready->value)->count(),
+            'processedCount' => WikiSource::query()->where('status', SourceStatus::Processed->value)->count(),
             'pendingProposalCount' => WikiProposal::query()->where('status', ProposalStatus::Pending->value)->count(),
             'activeRunCount' => AgentRun::query()->whereIn('status', [
                 AgentRunStatus::Queued->value,

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\WikiCommit;
 use App\Models\WikiProposal;
 use App\Repositories\Wiki\ProposalRepository;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class ProposalApplyService
@@ -22,8 +23,14 @@ class ProposalApplyService
 
     public function apply(WikiProposal $proposal, User $user): WikiCommit
     {
-        $this->workspace->initialize();
-        $this->git->ensureRepository();
+        foreach (['AGENTS.md', 'wiki/index.md', 'wiki/log.md'] as $required) {
+            if (! $this->workspace->exists($required)) {
+                throw new RuntimeException('Wiki 尚未初始化，请先执行 php artisan php-wiki:init。');
+            }
+        }
+        if ($this->git->head() === null) {
+            throw new RuntimeException('Wiki Git 仓库缺少 HEAD，请先执行 php artisan php-wiki:init。');
+        }
 
         return $this->workspace->withApplyLock(fn (): WikiCommit => $this->applyLocked($proposal, $user));
     }
@@ -31,8 +38,31 @@ class ProposalApplyService
     private function applyLocked(WikiProposal $proposal, User $user): WikiCommit
     {
         $proposal = $this->proposals->reloadWithChanges($proposal);
+        if ($proposal->status === ProposalStatus::Applied->value) {
+            $recorded = $this->proposals->commitFor($proposal);
+            $commitHash = $recorded === null ? 'missing' : $recorded->commit_hash;
+            if ($recorded === null || ! $this->git->containsCommit($recorded->commit_hash)) {
+                throw new RuntimeException(
+                    "Proposal {$proposal->uuid} 已记录 applied，但 Git 无法确认 commit {$commitHash}。"
+                    .'拒绝自动修复；请核对 wiki_commits、Git HEAD 和工作区文件后再恢复。',
+                );
+            }
+
+            throw new RuntimeException(
+                "Proposal {$proposal->uuid} 已由 commit {$commitHash} 应用，拒绝重复终态。",
+            );
+        }
         if ($proposal->status !== ProposalStatus::Pending->value) {
-            throw new RuntimeException('只有待审批提案可以应用。');
+            throw new RuntimeException("Proposal {$proposal->uuid} 当前状态为 {$proposal->status}；只有待审批提案可以应用。");
+        }
+
+        $message = "wiki: apply proposal {$proposal->uuid}";
+        $orphanCommit = $this->git->findCommitByMessage($message);
+        if ($orphanCommit !== null) {
+            $commit = $this->proposals->recordApplied($proposal, $user, $orphanCommit);
+            $this->refreshSearch($proposal, $orphanCommit);
+
+            return $commit;
         }
 
         $errors = $this->validator->validate($proposal);
@@ -53,8 +83,9 @@ class ProposalApplyService
         }
         $paths = array_values(array_unique($paths));
         $snapshots = $this->snapshots($paths);
-        $parent = $this->git->head();
+        $parent = $this->git->head() ?? throw new RuntimeException('审批期间 Git HEAD 消失，拒绝应用。');
         $commitHash = null;
+        $commitAttempted = false;
 
         try {
             foreach ($proposal->changes as $change) {
@@ -71,19 +102,63 @@ class ProposalApplyService
 
             $this->updateIndex($proposal);
             $this->appendLog($proposal, $user);
-            $commitHash = $this->git->commitPaths($paths, "wiki: apply proposal {$proposal->uuid}");
+            $commitAttempted = true;
+            $commitHash = $this->git->commitPaths($paths, $message);
 
             $commit = $this->proposals->recordApplied($proposal, $user, $commitHash);
-
-            $this->search->rebuild();
-
-            return $commit;
         } catch (\Throwable $exception) {
-            if ($commitHash !== null && $parent !== null) {
-                $this->git->rewindLastCommit($commitHash, $parent, $paths);
+            $rollbackError = null;
+            if ($commitHash !== null) {
+                try {
+                    $this->git->rewindLastCommit($commitHash, $parent, $paths);
+                } catch (\Throwable $rollbackException) {
+                    $rollbackError = $rollbackException;
+                }
+            } elseif ($commitAttempted) {
+                $currentHead = $this->git->head();
+                if ($currentHead !== $parent) {
+                    throw new RuntimeException(
+                        'Git 提交结果不明且 HEAD 已变化，拒绝自动恢复。请核对 Proposal '
+                        .$proposal->uuid."、HEAD {$currentHead} 与提交标题 {$message}。",
+                        previous: $exception,
+                    );
+                }
+                try {
+                    $this->git->unstagePaths($parent, $paths);
+                } catch (\Throwable $rollbackException) {
+                    $rollbackError = $rollbackException;
+                }
             }
-            $this->restore($snapshots);
+            try {
+                $this->restore($snapshots);
+            } catch (\Throwable $restoreException) {
+                $rollbackError ??= $restoreException;
+            }
+            if ($rollbackError !== null) {
+                throw new RuntimeException(
+                    '审批失败且自动恢复未完成，请人工核对 Git HEAD 与 Proposal '.$proposal->uuid.'：'.$rollbackError->getMessage(),
+                    previous: $exception,
+                );
+            }
             throw $exception;
+        }
+
+        $this->refreshSearch($proposal, $commitHash);
+
+        return $commit;
+    }
+
+    private function refreshSearch(WikiProposal $proposal, string $commitHash): void
+    {
+        try {
+            $this->search->rebuild();
+        } catch (\Throwable $exception) {
+            Log::warning('Wiki 权威提交已成功，但 FTS5 缓存重建失败。', [
+                'proposal_uuid' => $proposal->uuid,
+                'commit_hash' => $commitHash,
+                'recovery' => 'php artisan php-wiki:rebuild-search',
+                'error' => $exception->getMessage(),
+            ]);
         }
     }
 

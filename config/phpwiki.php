@@ -28,10 +28,6 @@ return [
         'image_max_edge' => (int) env('PHP_WIKI_IMAGE_MAX_EDGE', 2000),
     ],
 
-    'reverb' => [
-        'public_port' => (int) env('PHP_WIKI_REVERB_PORT', 8080),
-    ],
-
     'supported_extensions' => [
         'md', 'txt', 'html', 'htm', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp',
     ],

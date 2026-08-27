@@ -134,10 +134,10 @@ class SourceRepository
         $source->update(['warnings' => $warnings ?: null]);
     }
 
-    public function markReady(WikiSource $source): void
+    public function markProcessed(WikiSource $source): void
     {
         $source->update([
-            'status' => SourceStatus::Ready->value,
+            'status' => SourceStatus::Processed->value,
             'processed_at' => now(),
         ]);
     }

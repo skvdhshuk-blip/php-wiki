@@ -2,7 +2,7 @@
 
 namespace App\Livewire;
 
-use App\Services\Application\AgentRunDispatchService;
+use App\Services\Application\ProposalDraftService;
 use App\Services\Wiki\WikiGraphService;
 use App\Services\Wiki\WikiMarkdownRenderer;
 use App\Services\Wiki\WikiPathGuard;
@@ -78,9 +78,9 @@ class WikiBrowserPage extends Component
         unset($this->html, $this->backlinks);
     }
 
-    public function archive(AgentRunDispatchService $dispatch): void
+    public function archive(ProposalDraftService $drafts): void
     {
-        $proposal = $dispatch->proposeArchive($this->path);
+        $proposal = $drafts->archivePage($this->path);
         Flux::toast(variant: 'success', text: "归档提案已创建：{$proposal->uuid}");
         $this->redirectRoute('proposals', ['proposal' => $proposal->id], navigate: true);
     }

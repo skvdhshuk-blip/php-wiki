@@ -15,21 +15,23 @@ class WikiSearchService
             return 0;
         }
 
-        DB::table('wiki_search_entries')->delete();
-        $count = 0;
+        return DB::transaction(function (): int {
+            DB::table('wiki_search_entries')->delete();
+            $count = 0;
 
-        foreach ($this->workspace->markdownFiles() as $path) {
-            $content = $this->workspace->read($path);
-            DB::table('wiki_search_entries')->insert([
-                'path' => $path,
-                'title' => $this->title($content, $path),
-                'content' => $content,
-                'source_ids' => implode(',', $this->sourceIds($content)),
-            ]);
-            $count++;
-        }
+            foreach ($this->workspace->markdownFiles() as $path) {
+                $content = $this->workspace->read($path);
+                DB::table('wiki_search_entries')->insert([
+                    'path' => $path,
+                    'title' => $this->title($content, $path),
+                    'content' => $content,
+                    'source_ids' => implode(',', $this->sourceIds($content)),
+                ]);
+                $count++;
+            }
 
-        return $count;
+            return $count;
+        });
     }
 
     /** @return list<array{path: string, title: string, snippet: string, source_ids: string}> */

@@ -7,7 +7,7 @@
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         @foreach ([
             ['label' => '本地来源', 'value' => $sourceCount],
-            ['label' => '已摄取', 'value' => $readyCount],
+            ['label' => '已处理', 'value' => $processedCount],
             ['label' => '待审批', 'value' => $pendingProposalCount],
             ['label' => '运行中', 'value' => $activeRunCount],
             ['label' => '累计成本', 'value' => '$'.number_format($totalCost, 4)],

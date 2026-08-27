@@ -22,14 +22,26 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           tools: composer:v2
           coverage: none
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22'
+          node-version: '24'
+
+      - name: Validate Compose configuration
+        run: |
+          docker compose config --quiet
+          PHP_WIKI_SOURCE_ROOTS=raw,work \
+          PHP_WIKI_MAX_TURNS=7 \
+          PHP_WIKI_MAX_TOKENS=4096 \
+          PHP_WIKI_MAX_BUDGET_USD=0.25 \
+          PHP_WIKI_PDF_BATCH_SIZE=3 \
+          PHP_WIKI_IMAGE_MAX_BYTES=1048576 \
+          PHP_WIKI_IMAGE_MAX_EDGE=1200 \
+          docker compose config --quiet
 
       - name: Setup Application
         run: composer setup

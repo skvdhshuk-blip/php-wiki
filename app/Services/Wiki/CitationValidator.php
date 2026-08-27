@@ -11,6 +11,7 @@ class CitationValidator
     public function __construct(
         private readonly SourceRepository $sources,
         private readonly SourceCatalog $catalog,
+        private readonly SourceCitationCodec $codec,
     ) {}
 
     /** @return list<string> */
@@ -21,16 +22,15 @@ class CitationValidator
             return $errors;
         }
 
-        preg_match_all('/\[\[source:([^|\]]+)\|sha256:([a-f0-9]{64})\|([^\]]+)\]\]/i', $content, $matches, PREG_SET_ORDER);
-        $rawCitationCount = substr_count($content, '[[source:');
-        if ($rawCitationCount !== count($matches)) {
+        $citations = $this->codec->all($content);
+        if ($this->codec->countMarkers($content) !== count($citations)) {
             $errors[] = '存在格式不完整的 source 引用。';
         }
 
-        foreach ($matches as $match) {
+        foreach ($citations as $citation) {
             $errors = array_merge(
                 $errors,
-                $this->validateSourceReference($match[1], strtolower($match[2]), $match[3]),
+                $this->validateSourceReference($citation->path, $citation->sha256, $citation->locator),
             );
         }
 
