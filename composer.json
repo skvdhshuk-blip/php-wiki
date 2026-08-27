@@ -48,10 +48,10 @@
     },
     "scripts": {
         "setup": [
-            "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
-            "@php artisan key:generate",
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+            "composer install",
+            "@php artisan key:generate",
             "@php artisan migrate --force",
             "npm install",
             "npm run build"

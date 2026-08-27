@@ -68,4 +68,25 @@ class DeploymentContractTest extends TestCase
         $this->assertStringNotContainsString("'reverb'", $config);
         $this->assertStringNotContainsString('public_port', $config);
     }
+
+    public function test_setup_creates_sqlite_before_composer_discovers_packages(): void
+    {
+        $composer = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 2).'/composer.json'),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $setup = $composer['scripts']['setup'] ?? null;
+
+        $this->assertIsArray($setup);
+        $installIndex = array_search('composer install', $setup, true);
+        $databaseIndex = array_search(
+            '@php -r "file_exists(\'database/database.sqlite\') || touch(\'database/database.sqlite\');"',
+            $setup,
+            true,
+        );
+        $this->assertNotFalse($installIndex);
+        $this->assertNotFalse($databaseIndex);
+        $this->assertLessThan($installIndex, $databaseIndex);
+    }
 }
