@@ -42,7 +42,9 @@ class DeploymentContractTest extends TestCase
 
         $this->assertNotFalse($workflow);
         $this->assertStringContainsString("php-version: '8.4'", $workflow);
+        $this->assertStringContainsString('extensions: gd, pdo_sqlite', $workflow);
         $this->assertStringContainsString("node-version: '24'", $workflow);
+        $this->assertStringContainsString('poppler-utils ffmpeg', $workflow);
         $this->assertStringContainsString('docker compose config --quiet', $workflow);
     }
 
