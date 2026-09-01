@@ -82,6 +82,58 @@ class PhpWikiBenchmarkCoreAgentCommandTest extends TestCase
         $this->assertSame('lookup-01', $report['cases'][0]['id']);
     }
 
+    public function test_report_records_the_source_revision_it_was_produced_from(): void
+    {
+        $this->app->instance(AgentRunner::class, new BenchmarkAgentRunner);
+
+        $this->artisan('php-wiki:benchmark-core-agent', [
+            '--live' => true,
+            '--ids' => 'lookup-01',
+            '--workspace' => 'fixture',
+            '--output' => $this->reportPath,
+        ]);
+
+        $report = json_decode(File::get($this->reportPath), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertArrayHasKey('source', $report);
+        $this->assertArrayHasKey('commit', $report['source']);
+        $this->assertArrayHasKey('dirty', $report['source']);
+    }
+
+    public function test_report_only_still_writes_the_verdict_but_never_fails_the_build(): void
+    {
+        $this->app->instance(AgentRunner::class, new FailingBenchmarkAgentRunner);
+
+        $this->artisan('php-wiki:benchmark-core-agent', [
+            '--live' => true,
+            '--ids' => 'lookup-01',
+            '--workspace' => 'fixture',
+            '--output' => $this->reportPath,
+            '--report-only' => true,
+        ])->assertSuccessful();
+
+        $report = json_decode(File::get($this->reportPath), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertFalse($report['passed']);
+    }
+
+    public function test_failing_gates_exit_with_a_different_code_than_a_usage_error(): void
+    {
+        $this->app->instance(AgentRunner::class, new FailingBenchmarkAgentRunner);
+
+        $this->artisan('php-wiki:benchmark-core-agent', [
+            '--live' => true,
+            '--ids' => 'lookup-01',
+            '--workspace' => 'fixture',
+            '--output' => $this->reportPath,
+        ])->assertExitCode(1);
+
+        $this->artisan('php-wiki:benchmark-core-agent', [
+            '--live' => true,
+            '--ids' => 'missing-01',
+            '--output' => $this->reportPath,
+        ])->assertExitCode(2);
+    }
+
     public function test_live_command_rejects_unknown_corpus_ids(): void
     {
         $this->artisan('php-wiki:benchmark-core-agent', [
@@ -120,5 +172,13 @@ class BenchmarkAgentRunner implements AgentRunner
                 'confidence' => 'high',
             ]],
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), [], 0, turnsUsed: 1);
+    }
+}
+
+class FailingBenchmarkAgentRunner implements AgentRunner
+{
+    public function run(Agent $agent, string $prompt, RunOptions $options): QueryResult
+    {
+        return new QueryResult('', [], 0, turnsUsed: 1);
     }
 }

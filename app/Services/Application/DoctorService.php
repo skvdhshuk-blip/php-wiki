@@ -3,6 +3,7 @@
 namespace App\Services\Application;
 
 use App\Services\Agent\ModelAccessPolicy;
+use App\Services\Agent\PromptRepository;
 use App\Services\Agent\Tools\DoctorPingTool;
 use App\Services\Wiki\WikiPathGuard;
 use HaoCode\Contracts\RunTerminationReason;
@@ -17,6 +18,7 @@ class DoctorService
     public function __construct(
         private readonly ModelAccessPolicy $modelAccess,
         private readonly WikiPathGuard $paths,
+        private readonly PromptRepository $prompts,
     ) {}
 
     /** @return array<string, mixed> */
@@ -37,7 +39,7 @@ class DoctorService
             providerType: (string) config('phpwiki.model.provider'),
             maxTokens: 1024,
             maxTurns: 4,
-            systemPrompt: '你是诊断 Agent。观察用户附加图片，必须调用一次 DoctorPing，然后用非空文本说明主色和黑色对角线。',
+            systemPrompt: $this->prompts->get('doctor-system'),
             permissionMode: 'bypass_permissions',
             allowedTools: [$tool->name()],
             tools: [$tool],
@@ -45,7 +47,7 @@ class DoctorService
         );
 
         try {
-            $result = Runner::run($agent, '执行视觉和工具诊断。', new RunOptions(
+            $result = Runner::run($agent, $this->prompts->get('doctor-request'), new RunOptions(
                 onToolStart: static function (string $name) use (&$started): void {
                     $started[] = $name;
                 },

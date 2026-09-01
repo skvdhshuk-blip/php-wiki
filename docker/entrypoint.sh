@@ -14,12 +14,14 @@ if [ -z "${APP_KEY:-}" ]; then
 fi
 
 database_path="${DB_DATABASE:-/data/database.sqlite}"
+# 内存库无法由独立进程预置：migrate 与 init 的结果会随进程一起消失，
+# 后续命令只会看到空库。测试容器使用内存库，自行建表。
 if [ "$database_path" != ':memory:' ]; then
     mkdir -p "$(dirname "$database_path")"
     touch "$database_path"
-fi
 
-php artisan migrate --force --no-interaction
-php artisan php-wiki:init --no-interaction
+    php artisan migrate --force --no-interaction
+    php artisan php-wiki:init --no-interaction
+fi
 
 exec "$@"

@@ -41,8 +41,15 @@ class SearchWikiTool extends WikiSdkTool
         $results = $this->search->search($query, (int) ($input['limit'] ?? 12));
         $this->budget?->recordSearchResults($results);
 
-        return json_encode(
+        // 检索得分只用于应用侧排序与预算决策，不进入模型输入：
+        // 它不是证据强度，交给模型只会被当成可引用的事实。
+        $visible = array_map(
+            static fn (array $result): array => array_diff_key($result, ['score' => null]),
             $results,
+        );
+
+        return json_encode(
+            $visible,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
         );
     }

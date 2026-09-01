@@ -28,6 +28,7 @@ class QueryWikiWorkflow
         private readonly AnswerRenderer $answerRenderer,
         private readonly AgentRunRepository $runs,
         private readonly ChatRepository $chats,
+        private readonly PromptRepository $prompts,
     ) {}
 
     public function execute(AgentRun $run): void
@@ -180,8 +181,10 @@ class QueryWikiWorkflow
      */
     private function retrievalPrompt(string $question, array $plan): string
     {
-        return "用户问题：\n{$question}\n\nQueryPlan：\n".$this->json($plan)
-            ."\n\n严格按计划检索。先读 wiki/index.md；只输出检索摘要，不要生成最终答案。";
+        return $this->prompts->render('query-retrieval', [
+            'question' => $question,
+            'plan' => $this->json($plan),
+        ]);
     }
 
     /**
@@ -196,11 +199,13 @@ class QueryWikiWorkflow
         string $requiredAnswerType,
         array $schema,
     ): string {
-        return "用户问题：\n{$question}\n\nQueryPlan：\n".$this->json($plan)
-            ."\n\nEvidenceBundle（唯一证据源）：\n".$this->json($evidence)
-            ."\n\nJSON Schema（应用会在落库前严格验证）：\n".$this->json($schema)
-            ."\n\n本次必须输出 type={$requiredAnswerType}，只输出符合 schema 的 JSON。字段名必须逐字使用 sections、heading、content、evidence_ids、inference、confidence；禁止改成 answer 或 title。"
-            .'answer 的 sections 不得为空；EvidenceBundle 的每个 conflict_evidence 组必须至少引用其中两个 ID，并在 content 明确披露冲突。';
+        return $this->prompts->render('query-answer', [
+            'question' => $question,
+            'plan' => $this->json($plan),
+            'evidence' => $this->json($evidence),
+            'schema' => $this->json($schema),
+            'type' => $requiredAnswerType,
+        ]);
     }
 
     /**
@@ -219,8 +224,11 @@ class QueryWikiWorkflow
         array $errors,
     ): string {
         return $this->answerPrompt($question, $plan, $evidence, $requiredAnswerType, $schema)
-            ."\n\n上一次草稿：\n{$draft}\n\n确定性验证错误：\n- ".implode("\n- ", $errors)
-            ."\n\n逐项修正：保留 type={$requiredAnswerType}；answer 至少生成一个非空 section，且每个 section 都填写 heading、content、evidence_ids、inference、confidence。仍不得新增 Evidence ID。";
+            ."\n\n".$this->prompts->render('query-repair', [
+                'draft' => $draft,
+                'errors' => '- '.implode("\n- ", $errors),
+                'type' => $requiredAnswerType,
+            ]);
     }
 
     private function requiredAnswerType(QueryPlan $plan, EvidenceBundle $evidence): string

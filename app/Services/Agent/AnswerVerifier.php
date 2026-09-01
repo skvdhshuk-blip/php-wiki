@@ -8,6 +8,8 @@ use App\Entities\QueryPlan;
 
 class AnswerVerifier
 {
+    public function __construct(private readonly GroundingDiagnoser $grounding) {}
+
     /** @return list<string> */
     public function verify(AnswerDraft $draft, EvidenceBundle $evidence, QueryPlan $plan): array
     {
@@ -84,6 +86,12 @@ class AnswerVerifier
             }
             if (preg_match('/\[\[source:|\[\^E\d+\]/u', $section->content) === 1) {
                 $errors[] = "{$label} 包含模型自行生成的引用标记。";
+            }
+
+            // 绑定了一条存在的证据只说明引用合法，不说明这句话是证据里的事实。
+            $quotes = array_map(static fn ($item): string => $item->quote, $boundEvidence);
+            foreach ($this->grounding->diagnose($section->content, $quotes) as $failure) {
+                $errors[] = "{$label} {$failure}";
             }
         }
 

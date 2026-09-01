@@ -46,6 +46,8 @@ class DeploymentContractTest extends TestCase
         $this->assertStringContainsString("node-version: '24'", $workflow);
         $this->assertStringContainsString('poppler-utils ffmpeg', $workflow);
         $this->assertStringContainsString('docker compose config --quiet', $workflow);
+        $this->assertStringContainsString('PHP_WIKI_API_KEY is not configured; live acceptance cannot run.', $workflow);
+        $this->assertStringNotContainsString('skipping live acceptance', $workflow);
     }
 
     public function test_every_container_receives_the_same_application_configuration_matrix(): void

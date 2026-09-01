@@ -10,9 +10,11 @@ use App\Services\Agent\CoreAgentAcceptanceCorpus;
 use App\Services\Agent\CoreAgentBenchmarkEvaluator;
 use App\Services\Agent\CoreAgentBenchmarkObserver;
 use App\Services\Agent\CoreAgentBenchmarkWorkspace;
+use App\Services\Agent\PromptRepository;
 use App\Services\Agent\QueryWikiWorkflow;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Process\Process;
 
 class PhpWikiBenchmarkCoreAgentCommand extends Command
 {
@@ -21,7 +23,8 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
         {--limit=0 : Limit live runs; zero executes the complete 50-question corpus}
         {--ids= : Execute a comma-separated fixed subset of corpus IDs}
         {--workspace=fixture : fixture uses the isolated acceptance knowledge base; configured uses PHP_WIKI_ROOT}
-        {--output= : JSON report path}';
+        {--output= : JSON report path}
+        {--report-only : Always exit successfully; the report still records whether the gates passed}';
 
     protected $description = 'Validate or execute the evidence-first Core Agent acceptance corpus';
 
@@ -34,8 +37,10 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
         ChatRepository $chats,
         QueryWikiWorkflow $workflow,
         AgentRunRepository $runs,
+        PromptRepository $prompts,
     ): int {
-        $entries = $corpus->all();
+        $completeCorpus = $corpus->all();
+        $entries = $completeCorpus;
         if (! $this->option('live')) {
             $manifest = $benchmarkWorkspace->within(
                 static fn (): array => $benchmarkWorkspace->manifest(),
@@ -78,7 +83,9 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
 
             return self::INVALID;
         }
-        $execute = function () use ($entries, $chats, $queryRuns, $workflow, $runs, $observer, $evaluator): array {
+        // 充分性门槛针对完整验收集，与本次跑了哪个子集无关：
+        // 「验收集被删小了」和「回答变差了」都必须让 CI 变红。
+        $execute = function () use ($entries, $completeCorpus, $chats, $queryRuns, $workflow, $runs, $observer, $evaluator): array {
             $thread = $chats->createThread();
             $observations = [];
             foreach ($entries as $index => $entry) {
@@ -88,13 +95,15 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
                 $observations[] = $observer->observe($entry, $runs->withDetails($run->id) ?? $run->fresh());
             }
 
-            return $evaluator->evaluate($entries, $observations);
+            return $evaluator->evaluate($entries, $observations, $completeCorpus);
         };
         $report = $workspaceMode === 'fixture'
             ? $benchmarkWorkspace->within(static fn (): array => $execute())
             : $execute();
         $report['generated_at'] = now()->toIso8601String();
         $report['model'] = config('phpwiki.model.name');
+        $report['source'] = $this->sourceRevision();
+        $report['prompt_version'] = $prompts->version();
         $report['scope'] = $idsOption !== '' ? 'subset' : ($limit > 0 ? 'smoke' : 'full');
         $report['workspace'] = $workspaceMode;
         if ($workspaceMode === 'fixture') {
@@ -111,7 +120,44 @@ class PhpWikiBenchmarkCoreAgentCommand extends Command
             $report['passed'] ? 'Core Agent acceptance passed.' : 'Core Agent acceptance failed closed.',
         );
 
+        // 退出码区分「跑不起来」和「跑完但没过」：INVALID 留给用法错误，
+        // FAILURE 表示门槛未通过。--report-only 只出报告不影响构建状态。
+        if ($this->option('report-only')) {
+            return self::SUCCESS;
+        }
+
         return $report['passed'] ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * 报告必须能追溯到具体代码状态，否则无法比较两次运行。
+     *
+     * @return array{commit: string|null, dirty: bool|null}
+     */
+    private function sourceRevision(): array
+    {
+        $commit = trim((string) (getenv('GITHUB_SHA') ?: ''));
+        $dirty = null;
+
+        if ($commit === '') {
+            $head = $this->git(['rev-parse', 'HEAD']);
+            $commit = $head === null ? '' : $head;
+            $status = $this->git(['status', '--porcelain']);
+            $dirty = $status === null ? null : $status !== '';
+        }
+
+        return ['commit' => $commit === '' ? null : $commit, 'dirty' => $dirty];
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
+    private function git(array $arguments): ?string
+    {
+        $process = new Process(array_merge(['git'], $arguments), base_path());
+        $process->run();
+
+        return $process->isSuccessful() ? trim($process->getOutput()) : null;
     }
 
     private function reportPath(): string

@@ -5,6 +5,10 @@ on:
     branches:
       - main
   pull_request:
+  schedule:
+    # 真实模型验收每天跑一次，避免质量回归只能靠人工发现。
+    - cron: '0 19 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -54,3 +58,67 @@ jobs:
 
       - name: Run CI Checks
         run: composer ci:check
+
+  # 需要真实模型与密钥的验收单独成阶段：PR 上默认不跑，
+  # 主干推送、定时任务和手动触发才执行。缺少密钥时失败关闭。
+  acceptance:
+    needs: ci
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check model credentials
+        id: credentials
+        env:
+          PHP_WIKI_API_KEY: ${{ secrets.PHP_WIKI_API_KEY }}
+        run: |
+          if [ -n "$PHP_WIKI_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "PHP_WIKI_API_KEY is not configured; live acceptance cannot run." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Setup PHP
+        if: steps.credentials.outputs.available == 'true'
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          extensions: gd, pdo_sqlite
+          tools: composer:v2
+          coverage: none
+
+      - name: Install visual runtime dependencies
+        if: steps.credentials.outputs.available == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y poppler-utils ffmpeg
+
+      - name: Setup Application
+        if: steps.credentials.outputs.available == 'true'
+        run: composer setup
+
+      - name: Run live acceptance
+        if: steps.credentials.outputs.available == 'true'
+        env:
+          PHP_WIKI_ALLOW_REMOTE_MODEL: 'true'
+          PHP_WIKI_API_KEY: ${{ secrets.PHP_WIKI_API_KEY }}
+        run: |
+          php artisan php-wiki:benchmark-core-agent \
+            --live \
+            --workspace=fixture \
+            --output=storage/app/core-agent-benchmarks/acceptance.json
+
+      - name: Upload acceptance report
+        if: always() && steps.credentials.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: core-agent-acceptance
+          path: storage/app/core-agent-benchmarks/acceptance.json
+          retention-days: 30

@@ -5,11 +5,33 @@ namespace App\Services\Agent;
 class CoreAgentBenchmarkEvaluator
 {
     /**
+     * 验收集自身的充分性要求，与质量门槛并列。
+     *
+     * 只看质量比例的话，删掉不通过的用例同样能让 CI 变绿；
+     * 这些门槛让「缩减验收集」和「回答变差」一样是失败。
+     * 数值取自 docs/CORE_AGENT_GOAL.md 的验收集设计。
+     */
+    private const MINIMUM_CASES = 50;
+
+    private const MINIMUM_CASES_PER_CATEGORY = 10;
+
+    private const REQUIRED_CATEGORIES = ['lookup', 'research', 'conflict', 'unknown', 'ambiguous'];
+
+    private const MINIMUM_CASES_PER_LANGUAGE = 10;
+
+    private const REQUIRED_LANGUAGES = ['zh', 'en'];
+
+    private const MINIMUM_VISUAL_CASES = 5;
+
+    private const VISUAL_EVIDENCE_KINDS = ['image_region', 'page'];
+
+    /**
      * @param  list<array{id: string, category: string, language: string, question: string, expected: array<string, mixed>}>  $corpus
      * @param  list<array<string, mixed>>  $observations
+     * @param  list<array<string, mixed>>|null  $completeCorpus  传入完整验收集时附加充分性门槛
      * @return array<string, mixed>
      */
-    public function evaluate(array $corpus, array $observations): array
+    public function evaluate(array $corpus, array $observations, ?array $completeCorpus = null): array
     {
         $observedById = [];
         foreach ($observations as $observation) {
@@ -90,6 +112,10 @@ class CoreAgentBenchmarkEvaluator
             $gates[] = $this->gate('ambiguity_clarification', $this->categoryRatio($cases, 'ambiguous', 'clarification_correct'), 1.0);
         }
 
+        if ($completeCorpus !== null) {
+            $gates = array_merge($gates, $this->sufficiencyGates($completeCorpus));
+        }
+
         return [
             'schema_version' => 2,
             'corpus_size' => count($corpus),
@@ -98,6 +124,55 @@ class CoreAgentBenchmarkEvaluator
             'gates' => $gates,
             'cases' => $cases,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $corpus
+     * @return list<array{name: string, actual: float, required: float, passed: bool}>
+     */
+    private function sufficiencyGates(array $corpus): array
+    {
+        $gates = [$this->gate('corpus_minimum_cases', (float) count($corpus), (float) self::MINIMUM_CASES)];
+
+        foreach (self::REQUIRED_CATEGORIES as $category) {
+            $gates[] = $this->gate(
+                "corpus_category_{$category}",
+                (float) $this->countBy($corpus, 'category', $category),
+                (float) self::MINIMUM_CASES_PER_CATEGORY,
+            );
+        }
+
+        foreach (self::REQUIRED_LANGUAGES as $language) {
+            $gates[] = $this->gate(
+                "corpus_language_{$language}",
+                (float) $this->countBy($corpus, 'language', $language),
+                (float) self::MINIMUM_CASES_PER_LANGUAGE,
+            );
+        }
+
+        $visual = count(array_filter(
+            $corpus,
+            static fn (array $entry): bool => in_array(
+                $entry['expected']['evidence_kind'] ?? null,
+                self::VISUAL_EVIDENCE_KINDS,
+                true,
+            ),
+        ));
+
+        $gates[] = $this->gate('corpus_visual_cases', (float) $visual, (float) self::MINIMUM_VISUAL_CASES);
+
+        return $gates;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $corpus
+     */
+    private function countBy(array $corpus, string $key, string $value): int
+    {
+        return count(array_filter(
+            $corpus,
+            static fn (array $entry): bool => ($entry[$key] ?? null) === $value,
+        ));
     }
 
     /**

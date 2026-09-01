@@ -39,6 +39,38 @@ class ArchitectureBoundaryTest extends TestCase
         $this->assertStringNotContainsString('SdkRuntime', $provider);
     }
 
+    public function test_the_contract_document_maps_every_clause_to_a_real_implementation(): void
+    {
+        $contract = file_get_contents(dirname(__DIR__, 2).'/AGENTS.md');
+
+        $this->assertNotFalse($contract);
+        $this->assertMatchesRegularExpression('/\| `app\/[^`]+\.php` \|/', $contract);
+
+        preg_match_all('/`(app\/[^`]+\.php)`/', $contract, $matches);
+        $this->assertNotSame([], $matches[1], '契约文档必须给出条款到实现的对应。');
+
+        foreach (array_unique($matches[1]) as $path) {
+            $this->assertFileExists(
+                dirname(__DIR__, 2).'/'.$path,
+                "AGENTS.md 指向了不存在的实现：{$path}",
+            );
+        }
+    }
+
+    public function test_model_system_prompts_are_not_embedded_in_application_code(): void
+    {
+        $violations = [];
+        foreach ($this->phpFiles(app_path()) as $file) {
+            $content = file_get_contents($file);
+            $this->assertNotFalse($content);
+            if (preg_match('/systemPrompt:\s*[\'\"]/', $content) === 1) {
+                $violations[] = str_replace(base_path().'/', '', $file);
+            }
+        }
+
+        $this->assertSame([], $violations, '模型 system prompt 必须由 PromptRepository 读取。');
+    }
+
     /** @return list<string> */
     private function phpFiles(string $directory): array
     {

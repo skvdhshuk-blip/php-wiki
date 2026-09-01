@@ -10,6 +10,7 @@ use App\Exceptions\AgentContractException;
 use App\Services\Source\SourceCatalog;
 use App\Services\Wiki\CitationValidator;
 use App\Services\Wiki\SourceCitationCodec;
+use App\Services\Wiki\TextTokenizer;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiWorkspace;
 
@@ -21,6 +22,8 @@ class EvidenceBundleBuilder
         private readonly WikiPathGuard $paths,
         private readonly SourceCatalog $catalog,
         private readonly WikiWorkspace $workspace,
+        private readonly TextTokenizer $tokenizer,
+        private readonly PropositionAnalyzer $analyzer,
     ) {}
 
     /** @param list<AgentToolInvocation> $toolInvocations */
@@ -301,27 +304,43 @@ class EvidenceBundleBuilder
         return [$coverage, $gaps, $conflicts, $conflictEvidence];
     }
 
-    /** @param list<EvidenceItem> $items */
+    /**
+     * 两条证据是否真的互相矛盾。
+     *
+     * 按「整条证据里出现的数字集合不同」判定会把并列事实误判成冲突：
+     * 「日志保留 30 天」和「最多导出 10 份」谈的根本不是一件事。
+     * 因此先剥掉数字得到命题骨架，只有骨架相同——即在说同一件事——
+     * 而数值或肯否不同，才算冲突。
+     *
+     * @param  list<EvidenceItem>  $items
+     */
     private function hasContradictoryValues(array $items): bool
     {
-        $valueSets = [];
-        $polarities = [];
-        foreach ($items as $item) {
-            $text = mb_strtolower($item->claimHint.' '.$item->quote);
-            preg_match_all('/\b\d+(?:\.\d+)?\b/u', $text, $matches);
-            if ($matches[0] !== []) {
-                $values = array_values(array_unique($matches[0]));
-                sort($values);
-                $valueSets[] = implode(',', $values);
+        $clauses = [];
+        foreach ($items as $index => $item) {
+            foreach ($this->analyzer->clauses($item->claimHint.'。'.$item->quote) as $clause) {
+                $clauses[] = ['owner' => $index, 'clause' => $clause];
             }
-            $polarities[] = preg_match('/不得|禁止|无需|不允许|不能|\bnot\b|\bnever\b|\bprohibit/iu', $text) === 1;
         }
 
-        if (count(array_unique($valueSets)) > 1) {
-            return true;
+        foreach ($clauses as $left) {
+            foreach ($clauses as $right) {
+                if ($left['owner'] === $right['owner']) {
+                    continue;
+                }
+                if (! $this->analyzer->samePropositions($left['clause']['tokens'], $right['clause']['tokens'])) {
+                    continue;
+                }
+                if ($left['clause']['polarity'] !== $right['clause']['polarity']) {
+                    return true;
+                }
+                if ($this->analyzer->statesDifferentQuantities($left['clause'], $right['clause'])) {
+                    return true;
+                }
+            }
         }
 
-        return in_array(true, $polarities, true) && in_array(false, $polarities, true);
+        return false;
     }
 
     private function matches(string $question, EvidenceItem $item): bool
@@ -390,26 +409,7 @@ class EvidenceBundleBuilder
     /** @return list<string> */
     private function tokens(string $text): array
     {
-        $normalized = mb_strtolower($text);
-        preg_match_all('/[a-z0-9_-]{2,}|[\p{Han}]{2,}/u', $normalized, $matches);
-        $tokens = [];
-        foreach ($matches[0] as $chunk) {
-            if (preg_match('/^[\p{Han}]+$/u', $chunk) === 1) {
-                for ($index = 0; $index < mb_strlen($chunk) - 1; $index++) {
-                    $tokens[] = mb_substr($chunk, $index, 2);
-                }
-            } else {
-                $tokens[] = $chunk;
-            }
-        }
-
-        $stop = [
-            '什么', '怎么', '如何', '为何', '请问', '哪些', '是否', '以及', '并且', '同时',
-            'what', 'which', 'when', 'where', 'who', 'why', 'how', 'the', 'this', 'that',
-            'according', 'wiki',
-        ];
-
-        return array_values(array_diff(array_unique($tokens), $stop));
+        return $this->tokenizer->queryTokens($text);
     }
 
     private function lineAtOffset(string $content, int $offset): string

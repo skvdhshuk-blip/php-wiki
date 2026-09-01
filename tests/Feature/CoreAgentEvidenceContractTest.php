@@ -525,6 +525,45 @@ class CoreAgentEvidenceContractTest extends TestCase
         $this->assertStringContainsString('调用失败', implode(' ', $bundle->warnings));
     }
 
+    public function test_parallel_facts_with_different_numbers_are_not_a_conflict(): void
+    {
+        // 两条证据各自谈一件事，只是数字不同：这是并列事实，不是矛盾。
+        $rawA = "日志保留 30 天。\n";
+        $rawB = "报表最多导出 10 份。\n";
+        File::put($this->wikiRoot.'/raw/retention.md', $rawA);
+        File::put($this->wikiRoot.'/raw/export.md', $rawB);
+        $shaA = hash('sha256', $rawA);
+        $shaB = hash('sha256', $rawB);
+        foreach ([['raw/retention.md', $shaA, strlen($rawA)], ['raw/export.md', $shaB, strlen($rawB)]] as $source) {
+            WikiSource::query()->create([
+                'path' => $source[0],
+                'type' => 'markdown',
+                'sha256' => $source[1],
+                'size' => $source[2],
+                'mtime' => 1,
+                'status' => 'processed',
+            ]);
+        }
+        $page = "# 日志与报表\n\n"
+            ."日志保留 30 天。 [[source:raw/retention.md|sha256:{$shaA}|lines:1-1]]\n"
+            ."报表最多导出 10 份。 [[source:raw/export.md|sha256:{$shaB}|lines:1-1]]\n";
+        app(WikiWorkspace::class)->atomicWrite('wiki/concepts/logs-and-reports.md', $page);
+        $plan = app(QueryPlanningService::class)->plan('日志保留和报表导出分别有什么规定？');
+        $bundle = app(EvidenceBundleBuilder::class)->build($plan, [
+            new AgentToolInvocation(
+                'run:tool:1',
+                'ReadWikiPage',
+                ['path' => 'wiki/concepts/logs-and-reports.md'],
+                $this->pageEnvelope('wiki/concepts/logs-and-reports.md', $page),
+                false,
+            ),
+        ]);
+
+        $this->assertCount(2, $bundle->items);
+        $this->assertSame([], $bundle->conflicts);
+        $this->assertNotContains('conflict', $bundle->coverage);
+    }
+
     public function test_numeric_disagreement_is_preserved_as_conflicting_evidence(): void
     {
         $rawA = "远程申请需要提前 3 天。\n";

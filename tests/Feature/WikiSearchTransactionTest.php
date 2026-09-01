@@ -2,6 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Services\Wiki\AnchorInformationScorer;
+use App\Services\Wiki\MarkdownSectionSplitter;
+use App\Services\Wiki\QueryVariantGenerator;
+use App\Services\Wiki\TextTokenizer;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiSearchService;
 use App\Services\Wiki\WikiWorkspace;
@@ -43,7 +47,7 @@ class WikiSearchTransactionTest extends TestCase
         };
 
         try {
-            (new WikiSearchService($failingWorkspace))->rebuild();
+            (new WikiSearchService($failingWorkspace, app(TextTokenizer::class), app(MarkdownSectionSplitter::class), app(AnchorInformationScorer::class), app(QueryVariantGenerator::class)))->rebuild();
             $this->fail('Expected failed FTS rebuild.');
         } catch (\RuntimeException $exception) {
             $this->assertStringContainsString('无法读取文件', $exception->getMessage());

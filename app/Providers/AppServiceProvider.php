@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Services\Agent\AgentRunner;
 use App\Services\Agent\HaoAgentRunner;
+use App\Services\Agent\PromptRepository;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,10 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(AgentRunner::class, HaoAgentRunner::class);
+        $this->app->bind(
+            PromptRepository::class,
+            static fn (): PromptRepository => new PromptRepository(resource_path('prompts')),
+        );
     }
 
     /**

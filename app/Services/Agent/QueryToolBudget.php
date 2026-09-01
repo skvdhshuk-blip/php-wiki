@@ -38,7 +38,12 @@ class QueryToolBudget
         $this->searches++;
     }
 
-    /** @param list<array{path: string, title: string, snippet: string, source_ids: string}> $results */
+    /**
+     * @param  list<array{
+     *     path: string, title: string, heading: string,
+     *     snippet: string, source_ids: string, score: float
+     * }>  $results
+     */
     public function recordSearchResults(array $results): void
     {
         $added = 0;

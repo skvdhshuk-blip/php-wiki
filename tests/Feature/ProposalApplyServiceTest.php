@@ -9,9 +9,13 @@ use App\Models\WikiProposal;
 use App\Models\WikiSource;
 use App\Repositories\Wiki\ProposalRepository;
 use App\Services\Source\SourceScanner;
+use App\Services\Wiki\AnchorInformationScorer;
 use App\Services\Wiki\ChangeSetValidator;
 use App\Services\Wiki\GitWorkspaceService;
+use App\Services\Wiki\MarkdownSectionSplitter;
 use App\Services\Wiki\ProposalApplyService;
+use App\Services\Wiki\QueryVariantGenerator;
+use App\Services\Wiki\TextTokenizer;
 use App\Services\Wiki\WikiPathGuard;
 use App\Services\Wiki\WikiSearchService;
 use App\Services\Wiki\WikiWorkspace;
@@ -224,7 +228,7 @@ class ProposalApplyServiceTest extends TestCase
         $proposal = $this->pendingProposal('wiki/concepts/search-failure.md', $this->page($source->sha256));
         $workspace = app(WikiWorkspace::class);
 
-        $this->app->instance(WikiSearchService::class, new class($workspace) extends WikiSearchService
+        $this->app->instance(WikiSearchService::class, new class($workspace, app(TextTokenizer::class), app(MarkdownSectionSplitter::class), app(AnchorInformationScorer::class), app(QueryVariantGenerator::class)) extends WikiSearchService
         {
             public function rebuild(): int
             {

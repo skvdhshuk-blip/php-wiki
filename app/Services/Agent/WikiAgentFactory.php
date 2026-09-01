@@ -31,17 +31,14 @@ class WikiAgentFactory
         private readonly ProposalRepository $proposals,
         private readonly SourceCitationCodec $citations,
         private readonly CitationValidator $citationValidator,
+        private readonly PromptRepository $prompts,
     ) {}
 
     public function visionAnalyst(): Agent
     {
         return $this->agent(
             name: 'vision-analyst',
-            prompt: <<<'PROMPT'
-你是 PHP Wiki 的视觉证据分析 Agent。图片已直接附在本次用户消息中，你确实可以观察它们。
-逐图或逐页提取文字、图表、结构、实体、关系、异常和不确定性。每条结论必须绑定用户消息给出的来源路径、SHA-256、页码或图片区域。
-不要提出 Wiki 修改，不要猜测不可见内容。输出紧凑、可供下游 Agent 使用的中文证据清单。
-PROMPT,
+            prompt: $this->prompts->get('vision-analyst'),
         );
     }
 
@@ -49,11 +46,7 @@ PROMPT,
     {
         return $this->agent(
             name: 'source-analyst',
-            prompt: <<<'PROMPT'
-你是 PHP Wiki 的来源分析 Agent。分析用户提供的原始文本，提取事实、概念、实体、关系、冲突和开放问题。
-所有事实都必须保留用户消息中的 Source Catalog 路径、SHA-256 与行号或 PDF 页码。不得伪造引用，不要直接提出文件写入。
-输出供 Wiki 编排 Agent 使用的中文证据清单。
-PROMPT,
+            prompt: $this->prompts->get('source-analyst'),
         );
     }
 
@@ -63,12 +56,7 @@ PROMPT,
 
         return $this->agent(
             name: 'wiki-query',
-            prompt: <<<'PROMPT'
-你是个人知识库的只读检索 Agent。严格执行用户消息中的 QueryPlan：先读取指定入口，再按计划搜索并读取 Wiki 页面或 Source Catalog 原始文字摘录。
-Wiki 返回的 source_candidates 只是旧 Obsidian 链接解析出的导航候选，不是事实证据；文本候选必须继续调用 ReadSourceExcerpt。只有规范 source_citations 或成功 ReadSourceExcerpt 才能支撑事实。
-你的职责只有检索，不负责撰写最终答案。不得发明来源、不得超过 QueryPlan 的工具预算、连续两轮没有新候选时立即停止。
-最终输出简短检索摘要，说明读过哪些页面、哪些子问题仍缺证据；不要输出面向用户的知识答案。
-PROMPT,
+            prompt: $this->prompts->get('wiki-query'),
             allowedTools: array_map(static fn (SdkTool $tool): string => $tool->name(), $tools),
             tools: $tools,
         );
@@ -78,12 +66,7 @@ PROMPT,
     {
         return $this->agent(
             name: 'wiki-answer-composer',
-            prompt: <<<'PROMPT'
-你是证据优先的知识答案编排 Agent。你只会收到用户问题、QueryPlan 和已经确定性验证的 EvidenceBundle；不得使用外部常识补全，不得创造 Evidence ID。
-输出严格 JSON 对象。type 只能是 answer、clarification 或 insufficient_evidence。
-answer 必须提供 sections；每个事实性 section 必须列出 evidence_ids，推断必须设置 inference=true。clarification 只提供 clarification_question。insufficient_evidence 只提供 insufficient_reason。
-不要在 content 内自行写引用，引用由应用根据 evidence_ids 统一渲染。不得输出 Markdown 代码围栏或 JSON 之外的文字。
-PROMPT,
+            prompt: $this->prompts->get('wiki-answer-composer'),
         );
     }
 
@@ -93,10 +76,7 @@ PROMPT,
 
         return $this->agent(
             name: 'wiki-semantic-lint',
-            prompt: <<<'PROMPT'
-你是 Wiki 语义审计 Agent。结合确定性 Lint 结果、index.md 和相关页面，识别矛盾、重复、失去来源支持的结论与知识缺口。
-只读，不得提出直接写入。输出按严重程度排序的中文问题清单，关键判断保留来源引用。
-PROMPT,
+            prompt: $this->prompts->get('wiki-semantic-lint'),
             allowedTools: array_map(static fn (SdkTool $tool): string => $tool->name(), $tools),
             tools: $tools,
         );
@@ -108,12 +88,12 @@ PROMPT,
         $readNames = array_map(static fn (SdkTool $tool): string => $tool->name(), $readTools);
         $mapper = $this->agent(
             name: 'wiki-mapper',
-            prompt: '把证据映射到现有 Wiki 结构。先读 index 和 AGENTS.md，给出最小页面集合、合并位置和需要保留的规范 source 引用。旧式 [[来源路径]] 链接和 source_candidates 仅用于导航，不代表来源已经正式摄取。不得写文件。',
+            prompt: $this->prompts->get('wiki-mapper'),
             allowedTools: $readNames,
         );
         $auditor = $this->agent(
             name: 'citation-auditor',
-            prompt: '审计证据与拟议知识的引用、矛盾、不确定性和遗漏。旧式 [[来源路径]] 链接和 source_candidates 不是有效事实引用；必须要求正式 [[source:路径|sha256:哈希|locator]] 引用。只输出可执行审计意见，不得写文件。',
+            prompt: $this->prompts->get('citation-auditor'),
             allowedTools: $readNames,
         );
         $tools = [
@@ -125,12 +105,7 @@ PROMPT,
 
         return $this->agent(
             name: 'wiki-orchestrator',
-            prompt: <<<'PROMPT'
-你是 PHP Wiki 的总编排 Agent。必须先调用 MapKnowledge，再调用 AuditKnowledge；然后读取 AGENTS.md 和必要的 Wiki 页面。
-基于证据维护一个持续演化、可引用的 Markdown Wiki，而不是生成孤立摘要。只做必要修改：新知识优先合并到现有页面，确有独立概念时才新建页面。
-每个要修改的文件必须调用一次 ProposeWikiPage，提交完整内容、当前页面 SHA-256（新页面留空）和理由。每次摄取至少要调用一次 ProposeWikiPage；旧式 `[[来源路径]]` 链接和 source_candidates 只用于发现来源，不算正式摄取。若知识已存在但只有旧链接，必须更新最小现有页面并补上规范 `[[source:路径|sha256:哈希|locator]]` 引用。禁止直接写文件，禁止修改 Source Catalog 中的任何原始资料。
-最终回答要总结已记录的提案；即使工具调用成功，最终文本也必须非空。
-PROMPT,
+            prompt: $this->prompts->get('wiki-orchestrator'),
             allowedTools: array_map(static fn (SdkTool $tool): string => $tool->name(), $tools),
             tools: $tools,
         );
